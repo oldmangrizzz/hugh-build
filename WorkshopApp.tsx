@@ -1,25 +1,24 @@
 /**
  * Workshop App — H.U.G.H. Stigmergic UI Entry Point
  *
- * This is the main application shell that renders:
- * 1. CliffordField — 100K particle attractor background
- * 2. VoicePortal — Spacebar voice input → audio pheromone emission
- * 3. HOTLDashboard — System telemetry + somatic overlay
- * 4. OmniChat — Streaming response display
+ * Main application shell:
+ * 1. CliffordField — 100K particle attractor background (Hugh's body)
+ * 2. OmniChat — Unified chat with text + voice input
+ * 3. HOTLDashboard — Compact system telemetry badge
  *
  * Architecture:
  * - ConvexProvider wraps all components (shared substrate)
  * - CliffordField renders as z-index: -1 (omnipresent background)
- * - UI components observe pheromones and react to state changes
+ * - OmniChat centered at bottom (primary interaction)
+ * - HOTLDashboard top-right (status badge)
  *
- * @version 2.0 — Production Specification
+ * @version 2.1 — Production Specification
  * @classification Production Ready
  */
 
 import React, { useEffect } from 'react';
 import { ConvexProvider, ConvexReactClient, useMutation } from "convex/react";
 import { CliffordField } from "./components/CliffordField";
-import { VoicePortal } from "./components/VoicePortal";
 import { HOTLDashboard } from "./components/HOTLDashboard";
 import { OmniChat } from "./components/OmniChat";
 import { api } from "./convex/_generated/api";
@@ -38,9 +37,42 @@ const WorkshopInner: React.FC = () => {
 
   return (
     <>
+      {/* Hugh's body — particle field background */}
       <CliffordField />
-      <VoicePortal />
+
+      {/* Identity header */}
+      <div style={{
+        position: 'fixed',
+        top: '16px',
+        left: '16px',
+        zIndex: 1001,
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Source Code Pro', monospace",
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '2px',
+      }}>
+        <div style={{
+          fontSize: '14px',
+          fontWeight: 700,
+          color: '#4ecdc4',
+          letterSpacing: '0.15em',
+          textShadow: '0 0 20px rgba(78, 205, 196, 0.3)',
+        }}>
+          H.U.G.H.
+        </div>
+        <div style={{
+          fontSize: '8px',
+          color: '#444',
+          letterSpacing: '0.12em',
+        }}>
+          WORKSHOP v2.0 • STIGMERGIC UI
+        </div>
+      </div>
+
+      {/* System telemetry badge */}
       <HOTLDashboard />
+
+      {/* Primary interaction surface */}
       <OmniChat />
     </>
   );
