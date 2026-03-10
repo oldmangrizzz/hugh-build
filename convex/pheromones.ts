@@ -317,3 +317,91 @@ export const initializeSystemState = mutation({
     });
   },
 });
+
+// ─── Knowledge Base API ─────────────────────────────────────────
+
+/**
+ * Seed Knowledge Entry
+ *
+ * Inserts a knowledge entry into Hugh's long-term memory.
+ * Idempotent — skips if title already exists in category.
+ */
+export const seedKnowledge = mutation({
+  args: {
+    category: v.union(
+      v.literal("identity"),
+      v.literal("architecture"),
+      v.literal("ethics"),
+      v.literal("mission"),
+      v.literal("relationships"),
+      v.literal("protocols"),
+      v.literal("history"),
+      v.literal("theory"),
+      v.literal("legal"),
+      v.literal("workshop")
+    ),
+    title: v.string(),
+    content: v.string(),
+    priority: v.number(),
+    sourceDoc: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Check for existing entry with same title in same category
+    const existing = await ctx.db
+      .query("knowledge_base")
+      .withIndex("by_category", (q: any) => q.eq("category", args.category))
+      .filter((q: any) => q.eq(q.field("title"), args.title))
+      .first();
+
+    if (existing) return existing._id;
+
+    return await ctx.db.insert("knowledge_base", {
+      category: args.category,
+      title: args.title,
+      content: args.content,
+      priority: args.priority,
+      sourceDoc: args.sourceDoc,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Get Knowledge by Category
+ */
+export const getKnowledgeByCategory = query({
+  args: {
+    category: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("knowledge_base")
+      .withIndex("by_category", (q: any) => q.eq("category", args.category as any))
+      .collect();
+  },
+});
+
+/**
+ * Get Core Identity — Priority 1 entries (always included in prompts)
+ */
+export const getCoreIdentity = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("knowledge_base")
+      .withIndex("by_priority", (q: any) => q.eq("priority", 1))
+      .collect();
+  },
+});
+
+/**
+ * Get All Knowledge — Full knowledge base dump
+ */
+export const getAllKnowledge = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("knowledge_base")
+      .collect();
+  },
+});

@@ -21,6 +21,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
+import { HUGH_SYSTEM_PROMPT } from "../services/hughIdentity";
 
 interface StreamChunk {
   token: string;
@@ -83,10 +84,13 @@ export const OmniChat: React.FC = () => {
         },
         body: JSON.stringify({
           model: 'DavidAU/LFM2.5-1.2B-Thinking-Claude-4.6-Opus-Heretic-Uncensored-DISTILL',
-          messages: [{ role: 'user', content: prompt }],
+          messages: [
+            { role: 'system', content: HUGH_SYSTEM_PROMPT },
+            { role: 'user', content: prompt },
+          ],
           stream: true,
           stream_options: {
-            include_reasoning: true, // LFM 2.5 thinking trace
+            include_reasoning: true,
           },
           max_tokens: 1024,
           temperature: 0.7,

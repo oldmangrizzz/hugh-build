@@ -246,4 +246,38 @@ export default defineSchema({
   })
     .index("by_node_id", ["nodeId"])
     .index("by_status", ["status"]),
+
+  /**
+   * Knowledge Base — Hugh's Long-Term Memory
+   *
+   * Distilled briefings, architecture docs, identity anchors, and
+   * operational knowledge. Categorized and prioritized for selective
+   * context injection during LFM inference calls.
+   *
+   * Priority levels:
+   * - 1: Core identity (ALWAYS included in system prompt)
+   * - 2: Operational (included when contextually relevant)
+   * - 3: Reference (available on-demand for deep queries)
+   */
+  knowledge_base: defineTable({
+    category: v.union(
+      v.literal("identity"),
+      v.literal("architecture"),
+      v.literal("ethics"),
+      v.literal("mission"),
+      v.literal("relationships"),
+      v.literal("protocols"),
+      v.literal("history"),
+      v.literal("theory"),
+      v.literal("legal"),
+      v.literal("workshop")
+    ),
+    title: v.string(),
+    content: v.string(),
+    priority: v.number(),
+    sourceDoc: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_category", ["category"])
+    .index("by_priority", ["priority"]),
 });
