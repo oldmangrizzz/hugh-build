@@ -1,0 +1,222 @@
+/**
+ * Symbiote CSS — H.U.G.H. Workshop Visual Language
+ *
+ * Design Philosophy:
+ * - Dark substrate (void black background)
+ * - Bioluminescent accents (particle glow)
+ * - Monospace typography (technical readout aesthetic)
+ * - Minimal chrome (UI recedes, particles dominate)
+ *
+ * Color Palette:
+ * - #0a0a0a: Void black (background)
+ * - #4ecdc4: Cyan bioluminescence (primary accent)
+ * - #ff6b6b: Coral alert (warnings/errors)
+ * - #95a5a6: Steel gray (secondary text)
+ *
+ * @version 2.0 — Production Specification
+ * @classification Production Ready
+ */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --void-black: #0a0a0a;
+  --deep-space: #1a1a2e;
+  --bioluminescent-cyan: #4ecdc4;
+  --coral-alert: #ff6b6b;
+  --steel-gray: #95a5a6;
+  --ghost-white: rgba(255, 255, 255, 0.1);
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: var(--void-black);
+  color: var(--steel-gray);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden; /* Particles fill viewport */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Scrollbar styling (minimal, recedes) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--void-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ghost-white);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--steel-gray);
+}
+
+/* Selection color (bioluminescent) */
+::selection {
+  background: var(--bioluminescent-cyan);
+  color: var(--void-black);
+}
+
+/* Focus outline (accessible, subtle) */
+:focus-visible {
+  outline: 2px solid var(--bioluminescent-cyan);
+  outline-offset: 2px;
+}
+
+/* Animation: Pulse (used by status indicators) */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Animation: Glow (used by active elements) */
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(78, 205, 196, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(78, 205, 196, 0.6);
+  }
+}
+
+/* Utility: Screen reader only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Utility: Center flex */
+.center-flex {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Utility: Grid auto-fit */
+.grid-auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+/* Typography: Heading */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--bioluminescent-cyan);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+
+/* Typography: Link */
+a {
+  color: var(--bioluminescent-cyan);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+a:hover {
+  opacity: 0.8;
+}
+
+/* Button: Minimal */
+button {
+  background: var(--ghost-white);
+  border: 1px solid var(--steel-gray);
+  color: var(--steel-gray);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  background: var(--steel-gray);
+  color: var(--void-black);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+/* Input: Minimal */
+input, textarea {
+  background: var(--void-black);
+  border: 1px solid var(--ghost-white);
+  color: var(--steel-gray);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: inherit;
+  transition: border-color 0.2s ease;
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--bioluminescent-cyan);
+}
+
+/* Panel: Glass morphism */
+.panel {
+  background: rgba(10, 10, 10, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--ghost-white);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.nominal {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--bioluminescent-cyan);
+}
+
+.status-badge.degraded {
+  background: rgba(255, 107, 107, 0.2);
+  color: var(--coral-alert);
+}
