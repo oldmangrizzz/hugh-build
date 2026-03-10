@@ -2,12 +2,9 @@
  * OmniChat — Unified Chat Interface for H.U.G.H.
  *
  * Text + voice input, streaming LFM inference responses,
- * conversation history, and CliffordField pheromone coordination.
+ * conversation history, TTS output, and think-tag stripping.
  *
- * Voice: Hold SPACE or mic button. Lazy mic init (no permission prompt on load).
- * Text: Type and press ENTER or click send.
- *
- * @version 2.1 — Production Specification
+ * @version 2.2 — Production Specification
  * @classification Production Ready
  */
 
@@ -23,6 +20,40 @@ interface ChatMessage {
   isStreaming?: boolean;
 }
 
+/** Strip <think>...</think> blocks and clean markdown artifacts */
+function cleanResponse(raw: string): string {
+  // Remove <think>...</think> blocks (greedy, multiline)
+  let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // Remove any unclosed <think> block at the end (still streaming)
+  cleaned = cleaned.replace(/<think>[\s\S]*$/gi, '');
+  // Convert **bold** to plain text
+  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+  // Convert *italic* to plain text
+  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
+  // Trim leading whitespace that remains after stripping think blocks
+  cleaned = cleaned.replace(/^\s+/, '');
+  return cleaned;
+}
+
+/** Speak text via Web Speech API (browser TTS) */
+function speak(text: string) {
+  if (!window.speechSynthesis) return;
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+  const cleaned = text.replace(/<[^>]+>/g, '').replace(/\*\*?/g, '');
+  if (!cleaned.trim()) return;
+  const utterance = new SpeechSynthesisUtterance(cleaned);
+  utterance.rate = 0.95;
+  utterance.pitch = 0.85; // Lower pitch — chest voice
+  // Prefer a male English voice
+  const voices = window.speechSynthesis.getVoices();
+  const preferred = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('daniel'))
+    || voices.find(v => v.lang.startsWith('en') && !v.name.toLowerCase().includes('female'))
+    || voices[0];
+  if (preferred) utterance.voice = preferred;
+  window.speechSynthesis.speak(utterance);
+}
+
 export const OmniChat: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -34,6 +65,7 @@ export const OmniChat: React.FC = () => {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +76,14 @@ export const OmniChat: React.FC = () => {
   const recordingStartRef = useRef<number>(0);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+
+  // Load voices (Safari needs this)
+  useEffect(() => {
+    window.speechSynthesis?.getVoices();
+    window.speechSynthesis?.addEventListener?.('voiceschanged', () => {
+      window.speechSynthesis.getVoices();
+    });
+  }, []);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -67,7 +107,8 @@ export const OmniChat: React.FC = () => {
       timestamp: Date.now(),
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput('');
     setIsStreaming(true);
 
@@ -80,8 +121,8 @@ export const OmniChat: React.FC = () => {
     };
     setMessages(prev => [...prev, assistantMsg]);
 
-    // Build conversation history (last 10 messages)
-    const history = [...messages, userMsg].slice(-10).map(m => ({
+    // Build conversation history (last 10 messages, cleaned)
+    const history = updatedMessages.slice(-10).map(m => ({
       role: m.role,
       content: m.content,
     }));
@@ -103,7 +144,7 @@ export const OmniChat: React.FC = () => {
             ...history,
           ],
           stream: true,
-          max_tokens: 1024,
+          max_tokens: 512,
           temperature: 0.7,
         }),
         signal: streamControllerRef.current.signal,
@@ -131,11 +172,12 @@ export const OmniChat: React.FC = () => {
               const token = data.choices?.[0]?.delta?.content || data.token || '';
               if (token) {
                 fullResponse += token;
+                const display = cleanResponse(fullResponse);
                 setMessages(prev => {
                   const updated = [...prev];
                   const last = updated[updated.length - 1];
                   if (last?.role === 'assistant') {
-                    updated[updated.length - 1] = { ...last, content: fullResponse };
+                    updated[updated.length - 1] = { ...last, content: display };
                   }
                   return updated;
                 });
@@ -146,6 +188,7 @@ export const OmniChat: React.FC = () => {
       }
 
       // Finalize
+      const finalContent = cleanResponse(fullResponse) || 'Copy that.';
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
@@ -153,11 +196,14 @@ export const OmniChat: React.FC = () => {
           updated[updated.length - 1] = {
             ...last,
             isStreaming: false,
-            content: fullResponse || 'Response complete.',
+            content: finalContent,
           };
         }
         return updated;
       });
+
+      // TTS — speak the response
+      if (ttsEnabled) speak(finalContent);
 
     } catch (error: any) {
       if (error?.name === 'AbortError') return;
@@ -174,7 +220,7 @@ export const OmniChat: React.FC = () => {
             ...last,
             isStreaming: false,
             content: isOffline
-              ? "LFM inference offline. The field is moving, the substrate is warm — but my voice needs the thinking model on the VPS. Operator knows the incantation."
+              ? "LFM inference offline. The field is moving, the substrate is warm — but my voice needs the thinking model on the VPS."
               : `Inference error: ${error?.message}`,
           };
         }
@@ -183,27 +229,23 @@ export const OmniChat: React.FC = () => {
     }
 
     setIsStreaming(false);
-  }, [isStreaming, messages]);
+  }, [isStreaming, messages, ttsEnabled]);
 
-  /**
-   * Cancel active stream
-   */
   const cancelStream = useCallback(() => {
     streamControllerRef.current?.abort();
+    window.speechSynthesis?.cancel();
     setIsStreaming(false);
     setMessages(prev => {
       const updated = [...prev];
       const last = updated[updated.length - 1];
       if (last?.role === 'assistant' && last.isStreaming) {
-        updated[updated.length - 1] = { ...last, isStreaming: false, content: last.content || '[Cancelled]' };
+        updated[updated.length - 1] = { ...last, isStreaming: false, content: cleanResponse(last.content) || '[Cancelled]' };
       }
       return updated;
     });
   }, []);
 
-  /**
-   * Voice recording — lazy init (only request mic on first use)
-   */
+  // Voice recording — lazy init
   const initAudio = useCallback(async () => {
     if (audioContextRef.current) return true;
     try {
@@ -243,7 +285,6 @@ export const OmniChat: React.FC = () => {
     if (!isRecording) return;
     setIsRecording(false);
 
-    // Disconnect audio nodes
     try {
       processorRef.current?.disconnect();
       sourceRef.current?.disconnect();
@@ -254,7 +295,6 @@ export const OmniChat: React.FC = () => {
     const totalLength = audioChunksRef.current.reduce((acc, c) => acc + c.length, 0);
     if (totalLength === 0) return;
 
-    // For now, voice capture posts a note — full STT integration via LFM audio endpoint
     sendMessage('[Voice captured — STT pending LFM audio endpoint]');
   }, [isRecording, sendMessage]);
 
@@ -311,19 +351,13 @@ export const OmniChat: React.FC = () => {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '12px 16px',
+        padding: '10px 16px',
         borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
         background: 'rgba(0, 0, 0, 0.3)',
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
+            width: '8px', height: '8px', borderRadius: '50%',
             background: '#4ecdc4',
             boxShadow: '0 0 8px rgba(78, 205, 196, 0.6)',
             animation: 'pulse 3s infinite',
@@ -333,34 +367,53 @@ export const OmniChat: React.FC = () => {
           </span>
           <span style={{ color: '#555', fontSize: '10px' }}>OMNICHAT</span>
         </div>
-        {isStreaming && (
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {/* TTS toggle */}
           <button
-            onClick={cancelStream}
+            onClick={() => { setTtsEnabled(!ttsEnabled); window.speechSynthesis?.cancel(); }}
             style={{
-              background: 'rgba(255, 107, 107, 0.15)',
-              border: '1px solid rgba(255, 107, 107, 0.3)',
-              color: '#ff6b6b',
-              padding: '3px 10px',
+              background: 'transparent',
+              border: `1px solid ${ttsEnabled ? 'rgba(78, 205, 196, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+              color: ttsEnabled ? '#4ecdc4' : '#444',
+              padding: '2px 8px',
               borderRadius: '4px',
               cursor: 'pointer',
               fontFamily: 'inherit',
-              fontSize: '10px',
+              fontSize: '9px',
               letterSpacing: '0.05em',
             }}
+            title={ttsEnabled ? 'Voice output ON' : 'Voice output OFF'}
           >
-            ■ STOP
+            {ttsEnabled ? '🔊 TTS' : '🔇 TTS'}
           </button>
-        )}
+          {isStreaming && (
+            <button
+              onClick={cancelStream}
+              style={{
+                background: 'rgba(255, 107, 107, 0.15)',
+                border: '1px solid rgba(255, 107, 107, 0.3)',
+                color: '#ff6b6b',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: '9px',
+              }}
+            >
+              ■ STOP
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
       <div style={{
         flex: 1,
         overflowY: 'auto',
-        padding: '16px',
+        padding: '14px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '14px',
+        gap: '12px',
         maxHeight: '45vh',
       }}>
         {messages.map((msg, i) => (
@@ -371,25 +424,25 @@ export const OmniChat: React.FC = () => {
           }}>
             <div style={{
               fontSize: '9px',
-              color: msg.role === 'user' ? '#666' : 'rgba(78, 205, 196, 0.6)',
-              marginBottom: '4px',
+              color: msg.role === 'user' ? '#5fa8a0' : 'rgba(78, 205, 196, 0.5)',
+              marginBottom: '3px',
               fontWeight: 600,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
             }}>
-              {msg.role === 'user' ? 'OPERATOR' : 'H.U.G.H.'}
+              {msg.role === 'user' ? '⟩ OPERATOR' : '⟨ H.U.G.H.'}
             </div>
             <div style={{
-              maxWidth: '88%',
+              maxWidth: '90%',
               padding: '10px 14px',
               borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
               background: msg.role === 'user'
-                ? 'rgba(78, 205, 196, 0.1)'
-                : 'rgba(255, 255, 255, 0.04)',
-              border: `1px solid ${msg.role === 'user' ? 'rgba(78, 205, 196, 0.15)' : 'rgba(255, 255, 255, 0.04)'}`,
-              color: msg.role === 'user' ? '#8ed8d2' : '#bbb',
+                ? 'rgba(78, 205, 196, 0.08)'
+                : 'rgba(255, 255, 255, 0.03)',
+              border: `1px solid ${msg.role === 'user' ? 'rgba(78, 205, 196, 0.12)' : 'rgba(255, 255, 255, 0.03)'}`,
+              color: msg.role === 'user' ? '#8ed8d2' : '#b0b0b0',
               fontSize: '13px',
-              lineHeight: '1.65',
+              lineHeight: '1.6',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}>
@@ -400,8 +453,7 @@ export const OmniChat: React.FC = () => {
               {msg.isStreaming && msg.content && (
                 <span style={{
                   display: 'inline-block',
-                  width: '7px',
-                  height: '14px',
+                  width: '7px', height: '14px',
                   background: '#4ecdc4',
                   marginLeft: '2px',
                   animation: 'pulse 0.5s infinite',
@@ -423,35 +475,28 @@ export const OmniChat: React.FC = () => {
         borderTop: '1px solid rgba(255, 255, 255, 0.06)',
         background: 'rgba(0, 0, 0, 0.3)',
       }}>
-        {/* Mic button */}
         <button
           onMouseDown={() => startRecording()}
           onMouseUp={() => stopRecording()}
           onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
           onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
           style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
+            width: '36px', height: '36px', borderRadius: '50%',
             border: `1.5px solid ${isRecording ? '#ff6b6b' : 'rgba(78, 205, 196, 0.25)'}`,
             background: isRecording ? 'rgba(255, 107, 107, 0.15)' : 'transparent',
             color: isRecording ? '#ff6b6b' : '#4ecdc4',
             cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '15px',
             transition: 'all 0.15s ease',
-            flexShrink: 0,
-            padding: 0,
+            flexShrink: 0, padding: 0,
             boxShadow: isRecording ? '0 0 12px rgba(255, 107, 107, 0.3)' : 'none',
           }}
-          title="Hold to speak (or press SPACE when not typing)"
+          title="Hold to speak"
         >
           🎤
         </button>
 
-        {/* Text input */}
         <input
           ref={inputRef}
           type="text"
@@ -470,33 +515,23 @@ export const OmniChat: React.FC = () => {
             fontSize: '13px',
             fontFamily: 'inherit',
             outline: 'none',
-            transition: 'border-color 0.2s',
           }}
           onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(78, 205, 196, 0.3)'}
           onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)'}
         />
 
-        {/* Send button */}
         <button
           onClick={() => sendMessage(input)}
           disabled={!input.trim() || isStreaming}
           style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
+            width: '36px', height: '36px', borderRadius: '8px',
             border: 'none',
-            background: input.trim() && !isStreaming
-              ? 'rgba(78, 205, 196, 0.2)'
-              : 'rgba(255, 255, 255, 0.03)',
+            background: input.trim() && !isStreaming ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 255, 255, 0.03)',
             color: input.trim() && !isStreaming ? '#4ecdc4' : '#333',
             cursor: input.trim() && !isStreaming ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '16px',
-            transition: 'all 0.15s ease',
-            flexShrink: 0,
-            padding: 0,
+            flexShrink: 0, padding: 0,
           }}
           title="Send message"
         >
@@ -504,7 +539,6 @@ export const OmniChat: React.FC = () => {
         </button>
       </div>
 
-      {/* Hint bar */}
       <div style={{
         padding: '3px 16px 7px',
         fontSize: '9px',
