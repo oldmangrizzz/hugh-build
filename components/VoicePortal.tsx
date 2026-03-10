@@ -154,9 +154,18 @@ export const VoicePortal: React.FC = () => {
       setStatus('idle');
       console.log("[VoicePortal] Audio pheromone emitted");
 
-    } catch (error) {
-      console.error("[VoicePortal] Processing failed:", error);
-      setStatus('error');
+    } catch (error: any) {
+      const isNetworkError = error?.message?.includes('Failed to fetch') || 
+                             error?.message?.includes('NetworkError') ||
+                             error?.message?.includes('fetch');
+      if (isNetworkError) {
+        console.warn("[VoicePortal] LFM inference offline — voice processing unavailable");
+        setStatus('error');
+        setTranscript('LFM Offline — voice processing unavailable');
+      } else {
+        console.error("[VoicePortal] Processing failed:", error);
+        setStatus('error');
+      }
     }
 
     setIsRecording(false);

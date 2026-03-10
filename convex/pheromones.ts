@@ -290,3 +290,30 @@ export const verifySignature = mutation({
     return !!(registry && registry.status === "active");
   },
 });
+
+/**
+ * Initialize System State — First Boot
+ *
+ * Seeds the system_state table with a nominal record if empty.
+ * Called once on first Workshop load to ensure dashboard has data.
+ */
+export const initializeSystemState = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query("system_state").first();
+    if (existing) return existing._id;
+
+    return await ctx.db.insert("system_state", {
+      status: "nominal",
+      telemetry: {
+        latencyMs: 12,
+        corruptionRate: 0,
+        contextPressure: 0.1,
+        computeLoad: 0.05,
+        activeAgents: 0,
+      },
+      updatedAt: Date.now(),
+      somaticOverlayEnabled: true,
+    });
+  },
+});

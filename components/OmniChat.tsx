@@ -130,8 +130,12 @@ export const OmniChat: React.FC = () => {
 
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
+        const isOffline = error.message.includes('Failed to fetch') || 
+                          error.message.includes('NetworkError');
         console.error("[OmniChat] Inference error:", error);
-        setResponse(`Error: ${error.message}`);
+        setResponse(isOffline 
+          ? 'LFM Offline — thinking endpoint unreachable. Hugh is listening but cannot respond yet.' 
+          : `Error: ${error.message}`);
       }
       setIsStreaming(false);
     }

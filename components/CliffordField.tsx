@@ -102,7 +102,7 @@ fn main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 
   // Alpha based on velocity (faster particles glow brighter)
   let speed = length(p.vel);
-  out.alpha = clamp(0.15 + speed * 0.5, 0.08, 0.6);
+  out.alpha = clamp(0.3 + speed * 0.8, 0.2, 0.9);
 
   return out;
 }
@@ -374,7 +374,7 @@ export const CliffordField: React.FC = () => {
       ctx.fillStyle = 'rgba(10, 10, 10, 0.15)';
       ctx.fillRect(0, 0, w, h);
 
-      ctx.fillStyle = 'rgba(78, 205, 196, 0.3)';
+      ctx.fillStyle = 'rgba(78, 205, 196, 0.5)';
       for (let i = 0; i < FALLBACK_COUNT; i++) {
         const x = particles[i * 2]!;
         const y = particles[i * 2 + 1]!;
@@ -387,7 +387,7 @@ export const CliffordField: React.FC = () => {
 
         const sx = (particles[i * 2]! * 0.33 + 1) * 0.5 * w;
         const sy = (1 - (particles[i * 2 + 1]! * 0.33 + 1) * 0.5) * h;
-        ctx.fillRect(sx, sy, 1, 1);
+        ctx.fillRect(sx, sy, 2, 2);
       }
 
       animationRef.current = requestAnimationFrame(render);
