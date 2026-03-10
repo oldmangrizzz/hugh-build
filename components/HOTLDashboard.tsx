@@ -35,7 +35,7 @@ interface SystemState {
   status: 'nominal' | 'degraded' | 'corrupted' | 'pressure' | 'recovery';
   telemetry: Telemetry;
   updatedAt: number;
-  somaticOverlayEnabled: boolean;
+  somaticOverlayEnabled?: boolean;
 }
 
 export const HOTLDashboard: React.FC = () => {

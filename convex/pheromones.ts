@@ -252,7 +252,7 @@ export const getSystemState = query({
   handler: async (ctx) => {
     const states = await ctx.db.query("system_state").collect();
     return states.length > 0 ? states[0] : {
-      status: "nominal",
+      status: "nominal" as const,
       telemetry: {
         latencyMs: 0,
         corruptionRate: 0,
