@@ -170,32 +170,26 @@ export const CliffordField: React.FC = () => {
     let cancelled = false;
 
     const initWebGPU = async () => {
-      if (!navigator.gpu) {
-        console.warn("[CliffordField] WebGPU not available — falling back to canvas 2D");
-        initCanvas2DFallback();
-        return;
-      }
+      // Try WebGPU — fall back to Canvas2D on ANY failure
+      try {
+        if (!navigator.gpu) throw new Error("No WebGPU");
 
-      const adapter = await navigator.gpu.requestAdapter();
-      if (!adapter) {
-        console.error("[CliffordField] No GPU adapter");
-        initCanvas2DFallback();
-        return;
-      }
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error("No adapter");
 
-      const device = await adapter.requestDevice();
-      const canvas = canvasRef.current;
-      if (!canvas || cancelled) return;
+        const device = await adapter.requestDevice();
+        const canvas = canvasRef.current;
+        if (!canvas || cancelled) return;
 
-      const context = canvas.getContext('webgpu');
-      if (!context) return;
+        const context = canvas.getContext('webgpu');
+        if (!context) throw new Error("No webgpu context");
 
-      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
-      context.configure({
-        device,
-        format: presentationFormat,
-        alphaMode: 'premultiplied',
-      });
+        const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+        context.configure({
+          device,
+          format: presentationFormat,
+          alphaMode: 'premultiplied',
+        });
 
       // ── Particle buffer: 100K × 4 floats (x, y, vx, vy) ──
       const particleData = new Float32Array(NUM_PARTICLES * 4);
@@ -339,6 +333,11 @@ export const CliffordField: React.FC = () => {
       };
 
       render();
+
+      } catch (err) {
+        console.warn("[CliffordField] WebGPU failed, falling back to Canvas2D:", err);
+        initCanvas2DFallback();
+      }
     };
 
     initWebGPU();
@@ -357,8 +356,10 @@ export const CliffordField: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Fewer particles for CPU rendering
-    const FALLBACK_COUNT = 10000;
+    // Fewer particles for CPU rendering — even fewer on mobile
+    const isMobile = window.innerWidth < 768;
+    const FALLBACK_COUNT = isMobile ? 4000 : 10000;
+    const PARTICLE_SIZE = isMobile ? 2.5 : 2;
     const particles = new Float32Array(FALLBACK_COUNT * 2);
     for (let i = 0; i < FALLBACK_COUNT; i++) {
       particles[i * 2] = (Math.random() - 0.5) * 4;
@@ -387,7 +388,7 @@ export const CliffordField: React.FC = () => {
 
         const sx = (particles[i * 2]! * 0.33 + 1) * 0.5 * w;
         const sy = (1 - (particles[i * 2 + 1]! * 0.33 + 1) * 0.5) * h;
-        ctx.fillRect(sx, sy, 2, 2);
+        ctx.fillRect(sx, sy, PARTICLE_SIZE, PARTICLE_SIZE);
       }
 
       animationRef.current = requestAnimationFrame(render);
