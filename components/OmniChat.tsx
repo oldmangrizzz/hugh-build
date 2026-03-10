@@ -109,7 +109,7 @@ export const OmniChat: React.FC = () => {
         signal: streamControllerRef.current.signal,
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`LFM_OFFLINE:${res.status}`);
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -164,8 +164,7 @@ export const OmniChat: React.FC = () => {
 
       const isOffline = error?.message?.includes('Failed to fetch') ||
                         error?.message?.includes('NetworkError') ||
-                        error?.message?.includes('HTTP 404') ||
-                        error?.message?.includes('HTTP 502');
+                        error?.message?.includes('LFM_OFFLINE');
 
       setMessages(prev => {
         const updated = [...prev];
