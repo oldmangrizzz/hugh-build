@@ -20,9 +20,8 @@ NC='\033[0m' # No Color
 # Configuration
 VPS_HOST="187.124.28.147"
 VPS_USER="root"
-VPS_PASS="***REMOVED***"
 VPS_PATH="/var/www/workshop"
-CONVEX_DEPLOYMENT="sincere-albatross-464"
+CONVEX_DEPLOYMENT="admired-goldfish-243"
 
 # Parse flags
 PROD=false
@@ -61,13 +60,7 @@ echo -e "${GREEN}Convex deployed: ${CONVEX_DEPLOYMENT}\n"
 # Step 3: Sync to VPS
 echo -e "${GREEN}[3/4] Syncing to VPS (${VPS_HOST})...${NC}"
 
-# Use sshpass if available, otherwise prompt for password
-if command -v sshpass &> /dev/null; then
-  sshpass -p "$VPS_PASS" rsync -avz --delete dist/ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}/
-else
-  echo -e "${YELLOW}sshpass not found — entering password manually${NC}"
-  rsync -avz --delete dist/ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}/
-fi
+rsync -avz --delete dist/ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}/
 
 if [ $? -ne 0 ]; then
   echo -e "${RED}[ERROR] Rsync failed${NC}"
