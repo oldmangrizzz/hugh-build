@@ -89,7 +89,7 @@ export const OmniChat: React.FC = () => {
     streamControllerRef.current = new AbortController();
 
     try {
-      const endpoint = import.meta.env.VITE_LFM_THINKING_ENDPOINT || '/api/v1/chat/completions';
+      const endpoint = import.meta.env.VITE_LFM_THINKING_ENDPOINT || '/api/inference/v1/chat/completions';
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
