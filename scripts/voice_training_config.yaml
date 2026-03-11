@@ -3,8 +3,9 @@
 # =============================================================================
 # Target: LFM2.5-Audio-1.5B via Liquid AI's leap-finetune
 # Method: LoRA (Parameter-Efficient Fine-Tuning)
-# Purpose: Adapt voice output to match target speaker profile
-#          (deep, gruff, authoritative, Irish/Scottish undertones)
+# Purpose: Adapt voice to three-reference profile:
+#          Day Mode (McGregor warmth) + Storm Mode (Neeson certainty)
+#          + Depth (Skarsgård authority). Heritage: Clan Munro lineage.
 #
 # Hardware: Tested on 1x H100 80GB. Should work on 1x A100 80GB with
 #           reduced batch size. Multi-GPU supported via Ray Train.
@@ -15,8 +16,7 @@
 # =============================================================================
 
 # --- Project Metadata ---
-# Unique project name (alphanumeric, hyphens, underscores only)
-project_name: "hugh-voice-gleeson-lora"
+project_name: "hugh-voice-lora"
 
 # --- Base Model ---
 # The text backbone model. For audio fine-tuning, leap-finetune operates

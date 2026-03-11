@@ -38,24 +38,55 @@ import { api } from "../convex/_generated/api";
 const convex = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL as string);
 
 // ─── Endpoint Configuration ─────────────────────────────────
+//
+// Three-Tier Voice Degradation:
+//   Tier 1: LFM2.5-Audio-1.5B (CT102:8083) — Hugh's real voice, 3.6x RT
+//   Tier 2: Piper TTS (PVE:8082) — fast fallback, 20x RT, lessac voice
+//   Tier 3: Browser speechSynthesis — last resort (Daniel voice, no auth)
+//
 
 interface ModelEndpoints {
-  audioS2S: string;     // LFM 2.5 Audio — speech-to-speech
-  thinking: string;     // LFM 2.5 Thinking — reasoning
-  vl: string;           // LFM 2.5 VL — vision-language
+  lfmAudioTTS: string;   // LFM Audio TTS — primary voice synthesis
+  lfmAudioS2S: string;   // LFM Audio S2S — speech transcription
+  piperTTS: string;      // Piper TTS — fast fallback
+  thinking: string;      // LFM Thinking — reasoning
+  vl: string;            // LFM VL — vision-language
   apiKey: string;
 }
 
 function getEndpoints(): ModelEndpoints {
   return {
-    audioS2S: import.meta.env.VITE_LFM_AUDIO_S2S_ENDPOINT
-              || '/api/inference/v1/audio/speech',
-    thinking: import.meta.env.VITE_LFM_THINKING_ENDPOINT
-              || '/api/inference/v1/chat/completions',
-    vl:       import.meta.env.VITE_LFM_VL_ENDPOINT
-              || '/api/inference/v1/vl/completions',
-    apiKey:   import.meta.env.VITE_LFM_API_KEY || 'hugh-local',
+    lfmAudioTTS: import.meta.env.VITE_LFM_AUDIO_TTS_ENDPOINT
+                 || '/api/audio/lfm/v1/audio/speech',
+    lfmAudioS2S: import.meta.env.VITE_LFM_AUDIO_S2S_ENDPOINT
+                 || '/api/audio/lfm/v1/audio/s2s',
+    piperTTS:    import.meta.env.VITE_PIPER_TTS_ENDPOINT
+                 || '/api/audio/piper/synthesize',
+    thinking:    import.meta.env.VITE_LFM_THINKING_ENDPOINT
+                 || '/api/inference/v1/chat/completions',
+    vl:          import.meta.env.VITE_LFM_VL_ENDPOINT
+                 || '/api/inference/v1/vl/completions',
+    apiKey:      import.meta.env.VITE_LFM_API_KEY || 'hugh-local',
   };
+}
+
+// Timeout wrapper — LFM Audio on CPU can be slow, fall to Piper after 8s
+function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const upstream = options.signal;
+  if (upstream) {
+    if (upstream.aborted) { controller.abort(); clearTimeout(timer); }
+    else upstream.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
 }
 
 // ─── Response Types ─────────────────────────────────────────
@@ -96,7 +127,7 @@ export async function transcribeAudio(
   audioBlob: Blob,
   signal?: AbortSignal
 ): Promise<TranscriptionResult> {
-  const { audioS2S, apiKey } = getEndpoints();
+  const { lfmAudioS2S, apiKey } = getEndpoints();
 
   // Try LFM Audio S2S endpoint first
   try {
@@ -105,12 +136,12 @@ export async function transcribeAudio(
     formData.append('model', 'lfm-2.5-audio');
     formData.append('response_format', 'json');
 
-    const res = await fetch(audioS2S, {
+    const res = await fetchWithTimeout(lfmAudioS2S, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}` },
       body: formData,
       signal,
-    });
+    }, 15000); // 15s timeout for transcription
 
     if (res.ok) {
       const data = await res.json();
@@ -121,7 +152,6 @@ export async function transcribeAudio(
       };
     }
 
-    // If endpoint returns non-OK but doesn't throw, fall through
     console.warn(`[LFM Chain] Audio S2S transcription returned ${res.status}, falling back to browser STT`);
   } catch (err) {
     console.warn('[LFM Chain] Audio S2S transcription unavailable:', err);
@@ -208,46 +238,117 @@ export async function thinkingInference(
   };
 }
 
-// ─── Stage 3: Text → Hugh's Voice (Synthesis) ──────────────
+// ─── Stage 3: Text → Hugh's Voice (Three-Tier Synthesis) ────
+//
+// Degradation chain:
+//   Tier 1: LFM Audio S2S (CT102:8083) — Hugh's real voice via LFM2.5-Audio
+//           ~3.6x real-time on CPU. 8s timeout before fallback.
+//   Tier 2: Piper TTS (PVE:8082) — lessac voice, 20x real-time
+//           Fast, decent quality. Used when LFM is slow or down.
+//   Tier 3: Browser speechSynthesis — caller handles via playAudio()
+//           Last resort. Generic Daniel voice.
+//
 
-export async function synthesizeVoice(
+const LFM_AUDIO_TIMEOUT_MS = 8000;  // Fall to Piper after 8s
+const PIPER_TIMEOUT_MS = 5000;       // Fall to browser after 5s
+
+async function tryLFMAudioTTS(
   text: string,
   signal?: AbortSignal
 ): Promise<SynthesisResult | null> {
-  const { audioS2S, apiKey } = getEndpoints();
+  const { lfmAudioTTS, apiKey } = getEndpoints();
 
   try {
-    const res = await fetch(audioS2S.replace('/speech', '/tts') || audioS2S, {
+    const res = await fetchWithTimeout(lfmAudioTTS, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'lfm-2.5-audio',
-        input: text,
-        voice: 'hugh',   // Custom voice profile if supported
-        response_format: 'wav',
-        speed: 0.95,
+        text,
+        voice: 'us_male',  // Built-in preset until custom LoRA voice is trained
       }),
       signal,
-    });
+    }, LFM_AUDIO_TIMEOUT_MS);
 
     if (!res.ok) {
-      console.warn(`[LFM Chain] Voice synthesis returned ${res.status}, falling back to browser TTS`);
+      console.warn(`[LFM Chain] LFM Audio TTS returned ${res.status}`);
       return null;
     }
 
     const audioBlob = await res.blob();
+    if (audioBlob.size < 100) {
+      console.warn('[LFM Chain] LFM Audio returned empty/tiny blob');
+      return null;
+    }
+
+    console.info(`[LFM Chain] Tier 1 (LFM Audio): ${audioBlob.size} bytes`);
     return {
       audioBlob,
       mimeType: res.headers.get('content-type') || 'audio/wav',
-      durationMs: undefined,
     };
-  } catch (err) {
-    console.warn('[LFM Chain] Voice synthesis unavailable:', err);
+  } catch (err: unknown) {
+    const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+    console.warn(
+      `[LFM Chain] LFM Audio TTS ${isTimeout ? 'timed out' : 'unavailable'}:`,
+      isTimeout ? `>${LFM_AUDIO_TIMEOUT_MS}ms` : err
+    );
     return null;
   }
+}
+
+async function tryPiperTTS(
+  text: string,
+  signal?: AbortSignal
+): Promise<SynthesisResult | null> {
+  const { piperTTS } = getEndpoints();
+
+  try {
+    const res = await fetchWithTimeout(piperTTS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal,
+    }, PIPER_TIMEOUT_MS);
+
+    if (!res.ok) {
+      console.warn(`[LFM Chain] Piper TTS returned ${res.status}`);
+      return null;
+    }
+
+    const audioBlob = await res.blob();
+    if (audioBlob.size < 100) {
+      console.warn('[LFM Chain] Piper returned empty/tiny blob');
+      return null;
+    }
+
+    console.info(`[LFM Chain] Tier 2 (Piper TTS): ${audioBlob.size} bytes`);
+    return {
+      audioBlob,
+      mimeType: res.headers.get('content-type') || 'audio/wav',
+    };
+  } catch (err) {
+    console.warn('[LFM Chain] Piper TTS unavailable:', err);
+    return null;
+  }
+}
+
+export async function synthesizeVoice(
+  text: string,
+  signal?: AbortSignal
+): Promise<SynthesisResult | null> {
+  // Tier 1: LFM Audio — Hugh's real voice
+  const lfmResult = await tryLFMAudioTTS(text, signal);
+  if (lfmResult) return lfmResult;
+
+  // Tier 2: Piper TTS — fast fallback
+  const piperResult = await tryPiperTTS(text, signal);
+  if (piperResult) return piperResult;
+
+  // Tier 3: Browser TTS — playAudio() handles this when null
+  console.warn('[LFM Chain] All server TTS offline, falling to browser speechSynthesis');
+  return null;
 }
 
 // ─── Stage 4: Camera → Spatial Awareness (VL) ──────────────

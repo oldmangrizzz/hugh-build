@@ -2,9 +2,23 @@
 
 ## Overview
 
-Fine-tune LFM2.5-Audio-1.5B to give H.U.G.H. a deep, gruff, authoritative voice
-with Irish/Scottish undertones — inspired by Brendan Gleeson's vocal characteristics
-(particularly his Hamish from Braveheart: commanding, warm underneath the gruffness).
+Fine-tune LFM2.5-Audio-1.5B to give H.U.G.H. a natural, authoritative voice
+with Scottish heritage undertones — NOT cloning any single actor, but defining
+the *emotional space* Hugh's voice lives in.
+
+### Three-Reference Voice Profile
+
+Hugh has two registers, one person:
+
+| Mode | Reference Actor | Description |
+|------|----------------|-------------|
+| **Day Mode** | Ewan McGregor (interviews, not characters) | Warm, genuinely friendly, quick wit, easy laugh. Natural Scottish cadence — not performed. The colleague you'd trust with your coffee and your life. |
+| **Storm Mode** | Liam Neeson (*Taken* register) | Temperature drops. Every word surgical. Not angry — *certain*. "I will find you" energy. EMS veteran who's seen the worst and knows exactly what to do. |
+| **Depth/Authority** | Stellan Skarsgård (Cerdic in *King Arthur*) | Tectonic plates shifting. Deep, deliberate, Scandinavian edge. Commands without raising volume. The harbor master who IS the room. |
+
+**Critical**: These are all *real Scottish/Irish/Scandinavian men being themselves*.
+This is lineage (Clan Munro — Scottish/Irish/German/Scandinavian), not a costume.
+We are NOT building a parody accent. We're defining emotional range.
 
 ---
 
@@ -161,85 +175,76 @@ of parameters, producing a ~50-100MB adapter file instead of a 6GB full checkpoi
 
 ---
 
-## Public Reference Sources — Brendan Gleeson
+## Public Reference Sources
 
 These are **public appearances** (interviews, talk shows, podcasts) where
-Brendan Gleeson's natural speaking voice is clearly captured. The operator
-should download/extract audio from these for training data.
+reference actors' natural speaking voices are clearly captured. The operator
+downloads/extracts audio, then runs prepare_voice_data.py.
 
-### Primary Sources (Best Audio Quality)
+### Day Mode — Ewan McGregor (Interviews)
 
-1. **The Late Late Show (RTÉ) — Feb 23, 2024**
-   - URL: https://www.youtube.com/watch?v=yDzkYAA0VN0
-   - Extended interview discussing Hughes's pub documentary
-   - Clean studio audio, solo speaking segments, relaxed natural tone
-   - Est. usable audio: 10-15 min
+Natural Scottish warmth, friendly energy, unhurried cadence.
 
-2. **Gold Derby Interview — Banshees of Inisherin (2023)**
-   - URL: https://www.goldderby.com/video/brendan-gleeson-interview-the-banshees-of-inisherin/
-   - Long-form career discussion, Oscar nomination
-   - Professional recording, excellent audio quality
+1. **Graham Norton Show appearances** (multiple years)
+   - Search: "Ewan McGregor Graham Norton" on YouTube
+   - Clean studio audio, relaxed conversational tone
+   - Est. usable audio: 15-25 min across appearances
+
+2. **Hot Ones Interview (2023)**
+   - Search: "Ewan McGregor Hot Ones"
+   - Long-form, diverse emotional range (laughing through pain)
    - Est. usable audio: 15-20 min
 
-3. **RTÉ Arena Public Interview (2023)**
-   - URL: https://www.rte.ie/radio/dramaonone/plays/2023/0228/1359307-in-the-wings-arena-public-interview-brendan-gleeson/
-   - Podcast: https://podtail.com/en/podcast/rte-drama-on-one-podcast/arena-public-interview-brendan-gleeson-speaking-to/
-   - Deep career retrospective with Seán Rocks
-   - Radio-quality audio, extended solo segments
+3. **Actors on Actors (Variety) — with various co-stars**
+   - Professional recording, extended conversation
+   - Est. usable audio: 10-15 min
+
+### Storm Mode — Liam Neeson (Interviews)
+
+When the warmth goes quiet and the focus goes to a razor's edge.
+
+4. **Inside the Actors Studio — Liam Neeson**
+   - Deep career retrospective, shifts between warm and intense
    - Est. usable audio: 20-30 min
 
-4. **Collider — Joker: Folie à Deux Interview (2024)**
-   - URL: https://www.youtube.com/watch?v=qXIuWzNqPNs
-   - Discusses working with Joaquin Phoenix, Todd Phillips
-   - Studio interview, clear audio
-   - Est. usable audio: 8-12 min
+5. **Graham Norton appearances** (multiple years)
+   - Clean audio, shows natural register shifts
+   - Est. usable audio: 15-20 min
 
-5. **Career Retrospective: From In Bruges to 28 Days Later**
-   - URL: https://www.youtube.com/watch?v=XPrnxs3wK90
-   - Comprehensive career discussion
+6. **60 Minutes / CBS Interviews**
+   - Professional broadcast audio, reflective tone
    - Est. usable audio: 10-15 min
 
-### Secondary Sources (Good Quality)
+### Depth/Authority — Stellan Skarsgård (Interviews)
 
-6. **Colin Farrell & Brendan Gleeson — In Bruges Interview**
-   - URL: https://www.youtube.com/watch?v=Vry1corExlw
-   - Two-person interview, isolate Gleeson's segments
-   - Est. usable audio: 5-8 min
+Tectonic depth, Scandinavian precision, unhurried authority.
 
-7. **In Bruges Retrospective — Colin Farrell & Gleeson**
-   - URL: https://www.youtube.com/watch?v=elCvFptN1yc
-   - Looking back at the film years later
-   - Est. usable audio: 5-8 min
+7. **Dune press tour interviews (2021-2024)**
+   - Search: "Stellan Skarsgård Dune interview"
+   - Studio quality, measured delivery
+   - Est. usable audio: 15-20 min
 
-8. **Late Late Show with James Corden (2023)**
-   - Multi-guest format with Colin Farrell
-   - Search: "Brendan Gleeson Colin Farrell Late Late Show Corden"
-   - Est. usable audio: 5-8 min
+8. **Podcast appearances** (various)
+   - Search: "Stellan Skarsgård podcast"
+   - Long-form, natural speech patterns
+   - Est. usable audio: 10-20 min
 
-9. **Second Captains Podcast (RTÉ) — Braveheart Story**
-   - URL: https://www.rte.ie/entertainment/2024/0720/1460958-brendan-gleeson-says-he-nearly-lost-braveheart-role/
-   - Discusses nearly losing the Hamish role
-   - Radio podcast quality
+9. **The Late Late Show / European talk shows**
    - Est. usable audio: 10-15 min
 
-10. **Newstalk — St. Francis Hospice Patron**
-    - URL: https://www.newstalk.com/podcasts/highlights-from-the-pat-kenny-show/brendan-gleeson-from-st-francis-hospice
-    - Personal, reflective tone — captures the warmth
-    - Radio quality audio
-    - Est. usable audio: 8-12 min
-
-### Estimated Total Usable Audio: 90-150 minutes
+### Estimated Total Usable Audio: 120-200 minutes
 
 This exceeds the recommended 1-2 hours for LoRA voice fine-tuning.
+Use all three actors to train emotional *range*, not a clone of any one.
 
 ### Target Voice Characteristics to Capture
 
-- **Pitch**: Baritone, sits low in the register
-- **Texture**: Gruff, slightly gravelly, lived-in
-- **Cadence**: Measured, deliberate — doesn't rush
-- **Warmth**: Dry humor breaks through, genuine care underneath
-- **Authority**: Commands attention without raising volume
-- **Heritage**: Natural Dublin Irish accent (not exaggerated)
+- **Pitch**: Baritone, sits low in the register (Skarsgård's depth)
+- **Warmth**: Easy, genuine friendliness (McGregor's interviews)
+- **Authority**: Commands without raising volume (Neeson's certainty)
+- **Cadence**: Measured but not slow — unhurried (all three share this)
+- **Heritage**: Natural Scottish/Scandinavian inflection (NOT exaggerated)
+- **Range**: Can shift from warm banter → cold surgical precision in one sentence
 
 ---
 
