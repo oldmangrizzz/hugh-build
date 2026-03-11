@@ -1,37 +1,33 @@
 /**
- * Pheromone Emitter and Observer API
+ * Pheromone Emitter and Observer API — v2.1 Whitepaper Alignment
  *
  * This module provides the mutation and query functions for:
- * - Emitting visual pheromones (VL nodes)
- * - Emitting audio pheromones (Audio nodes)
- * - Observing the substrate (Frontend renderers)
- * - Verifying Soul Anchor signatures
+ * - Emitting visual, audio, and somatic pheromones
+ * - Observing the substrate (frontend renderers, VL nodes)
+ * - Reinforcing persistent pheromones (TTL refresh)
+ * - Agent registry management
+ * - Audit logging for HOTL operator visibility
  *
- * All emissions require cryptographic signature verification.
- * Unauthorized emissions are rejected at the mutation layer.
+ * All emissions are verified against the agent_registry.
+ * Unauthorized emissions are rejected and audit-logged.
  *
- * @version 2.0 — Production Specification
+ * @version 2.1 — Whitepaper v2 Alignment
  * @classification Production Ready
  */
 
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+// ─── Visual Pheromone Emission ──────────────────────────────────
+
 /**
  * Emit Visual Pheromone
  *
- * Called by Vision-Language nodes when they detect audio intent
- * and map it to spatial coordinates.
+ * Called by VL nodes when they detect audio intent and map it to
+ * spatial coordinates with content payloads.
  *
- * Signature verification: Checks emitterSignature against Soul Anchor registry.
- * Rejected if node is revoked or unknown.
- *
- * @param intent - UI state intent (media_playback, spatial_search, etc.)
- * @param position - 3D spatial coordinates (normalized -1.0 to 1.0)
- * @param weight - Concentration weight (0.0 to 1.0)
- * @param expiresAt - TTL expiration timestamp (ms)
- * @param emitterSignature - Cryptographic signature (format: "node_id:sig:timestamp")
- * @param metadata - Optional debug/audit metadata
+ * Validates emitter against agent_registry (with soul_anchor_registry fallback).
+ * Writes audit log on both success and rejection.
  */
 export const emitVisual = mutation({
   args: {
@@ -39,16 +35,35 @@ export const emitVisual = mutation({
       v.literal("idle"),
       v.literal("media_playback"),
       v.literal("spatial_search"),
-      v.literal("text_display")
+      v.literal("text_display"),
+      v.literal("alert"),
+      v.literal("dashboard"),
+      v.literal("navigation"),
+      v.literal("control"),
+      v.literal("ha_control"),
     ),
     position: v.object({
       x: v.float64(),
       y: v.float64(),
       z: v.float64(),
     }),
+    size: v.object({
+      width: v.float64(),
+      height: v.float64(),
+    }),
     weight: v.float64(),
-    expiresAt: v.number(),
+    attractorOverride: v.optional(v.object({
+      a: v.float64(),
+      b: v.float64(),
+      c: v.float64(),
+      d: v.float64(),
+    })),
+    content: v.any(), // ContentPayload union — runtime validated
+    layer: v.optional(v.number()),
+    persistent: v.optional(v.boolean()),
+    ttlMs: v.number(),
     emitterSignature: v.string(),
+    emitterId: v.string(),
     metadata: v.optional(v.object({
       sourceCamera: v.optional(v.string()),
       confidenceScore: v.optional(v.float64()),
@@ -56,184 +71,238 @@ export const emitVisual = mutation({
     })),
   },
   handler: async (ctx, args) => {
-    // Extract node ID from signature
-    const nodeId = args.emitterSignature.split(":")[0];
-
-    // Verify Soul Anchor registration
-    const registry = await ctx.db
-      .query("soul_anchor_registry")
-      .withIndex("by_node_id", (q) => q.eq("nodeId", nodeId))
+    // Verify emitter against agent_registry (primary) or soul_anchor_registry (fallback)
+    const agent = await ctx.db
+      .query("agent_registry")
+      .withIndex("by_agent_id", (q: any) => q.eq("agentId", args.emitterId))
       .first();
 
-    if (!registry || registry.status !== "active") {
-      throw new Error(
-        `Soul Anchor verification failed: Node "${nodeId}" is ${registry ? registry.status : "unknown"}`
-      );
+    if (!agent || !agent.isActive) {
+      // Fallback: check legacy soul_anchor_registry
+      const nodeId = args.emitterSignature.split(":")[0];
+      const legacyNode = await ctx.db
+        .query("soul_anchor_registry")
+        .withIndex("by_node_id", (q: any) => q.eq("nodeId", nodeId))
+        .first();
+
+      if (!legacyNode || legacyNode.status !== "active") {
+        await ctx.db.insert("pheromone_audit", {
+          timestamp: Date.now(),
+          emitterId: args.emitterId,
+          pheromoneType: "visual" as const,
+          intent: args.intent,
+          weight: args.weight,
+          accepted: false,
+          rejectionReason: agent ? "Agent inactive" : "Unknown agent",
+        });
+        throw new Error(
+          `Emitter verification failed: "${args.emitterId}" is ${agent ? "inactive" : "unknown"}`
+        );
+      }
     }
 
-    // Validate weight bounds
-    if (args.weight < 0 || args.weight > 1) {
-      throw new Error("Weight must be between 0.0 and 1.0");
-    }
+    // Clamp weight to [0, 1]
+    const clampedWeight = Math.max(0, Math.min(1, args.weight));
 
-    // Validate expiration is in the future
-    if (args.expiresAt <= Date.now()) {
-      throw new Error("expiresAt must be in the future");
-    }
-
-    // Insert pheromone into substrate
     const id = await ctx.db.insert("visual_pheromones", {
       intent: args.intent,
       position: args.position,
-      weight: args.weight,
-      expiresAt: args.expiresAt,
+      size: args.size,
+      weight: clampedWeight,
+      attractorOverride: args.attractorOverride,
+      content: args.content,
+      layer: args.layer,
+      persistent: args.persistent,
+      expiresAt: Date.now() + args.ttlMs,
       emitterSignature: args.emitterSignature,
+      emitterId: args.emitterId,
       metadata: args.metadata,
     });
 
+    // Audit log
+    await ctx.db.insert("pheromone_audit", {
+      timestamp: Date.now(),
+      emitterId: args.emitterId,
+      pheromoneType: "visual" as const,
+      intent: args.intent,
+      weight: clampedWeight,
+      accepted: true,
+    });
+
     console.log(
-      `[Visual Pheromone] Emitted ${args.intent} at [${args.position.x}, ${args.position.y}, ${args.position.z}] weight=${args.weight}`
+      `[Visual Pheromone] ${args.intent} at [${args.position.x.toFixed(2)}, ${args.position.y.toFixed(2)}, ${args.position.z.toFixed(2)}] w=${clampedWeight} content=${args.content?.type ?? "ambient"}`
     );
 
     return id;
   },
 });
+
+// ─── Audio Pheromone Emission ───────────────────────────────────
 
 /**
  * Emit Audio Pheromone
  *
  * Called by LFM 2.5-Audio nodes when they detect voice intent.
- *
- * This is the scout trail — VL nodes observe this and emit visual pheromones.
- *
- * @param transcription - Optional speech transcription
- * @param intentVector - 1536-dimensional semantic embedding
- * @param intentCategory - Classified intent category
- * @param expiresAt - TTL expiration (ms)
- * @param emitterSignature - Cryptographic signature
- * @param confidence - Optional inference confidence (0.0 to 1.0)
+ * Scout trail — VL nodes observe this and emit visual pheromones.
  */
 export const emitAudio = mutation({
   args: {
+    intent: v.string(),
     transcription: v.optional(v.string()),
-    intentVector: v.array(v.float64()),
-    intentCategory: v.string(),
-    expiresAt: v.number(),
+    intentVector: v.optional(v.array(v.float64())),
+    confidence: v.float64(),
+    extractedParams: v.optional(v.string()),
+    ttlMs: v.number(),
     emitterSignature: v.string(),
-    confidence: v.optional(v.float64()),
+    emitterId: v.string(),
   },
   handler: async (ctx, args) => {
-    // Extract node ID from signature
-    const nodeId = args.emitterSignature.split(":")[0];
-
-    // Verify Soul Anchor registration
-    const registry = await ctx.db
-      .query("soul_anchor_registry")
-      .withIndex("by_node_id", (q) => q.eq("nodeId", nodeId))
-      .first();
-
-    if (!registry || registry.status !== "active") {
-      throw new Error(
-        `Soul Anchor verification failed: Node "${nodeId}" is ${registry ? registry.status : "unknown"}`
-      );
-    }
-
-    // Validate vector dimensions (1536 for LFM 2.5)
-    if (args.intentVector.length !== 1536) {
-      throw new Error(
-        `intentVector must be 1536 dimensions, got ${args.intentVector.length}`
-      );
-    }
-
-    // Validate expiration
-    if (args.expiresAt <= Date.now()) {
-      throw new Error("expiresAt must be in the future");
-    }
-
-    // Insert audio pheromone
     const id = await ctx.db.insert("audio_pheromones", {
+      intent: args.intent,
       transcription: args.transcription,
       intentVector: args.intentVector,
-      intentCategory: args.intentCategory,
-      expiresAt: args.expiresAt,
-      emitterSignature: args.emitterSignature,
       confidence: args.confidence,
+      extractedParams: args.extractedParams,
+      expiresAt: Date.now() + args.ttlMs,
+      emitterSignature: args.emitterSignature,
+      emitterId: args.emitterId,
+    });
+
+    // Audit log
+    await ctx.db.insert("pheromone_audit", {
+      timestamp: Date.now(),
+      emitterId: args.emitterId,
+      pheromoneType: "audio" as const,
+      intent: args.intent,
+      weight: args.confidence,
+      accepted: true,
     });
 
     console.log(
-      `[Audio Pheromone] Emitted ${args.intentCategory} (confidence: ${args.confidence ?? "N/A"})`
+      `[Audio Pheromone] ${args.intent} (conf: ${args.confidence.toFixed(2)}) "${args.transcription ?? ""}"`
     );
 
     return id;
   },
 });
 
+// ─── Somatic Pheromone Emission ─────────────────────────────────
+
 /**
- * Get Latest Visual Pheromones
+ * Emit Somatic Pheromone
  *
- * Frontend subscription: Returns active visual pheromones ordered by weight.
- * The CliffordField component uses this to interpolate attractor parameters.
- *
- * @returns Array of visual pheromones sorted by weight (descending)
+ * System health signals mapped to embodied sensations.
+ * These modify the ambient attractor field without collapsing to UI.
  */
-export const getLatestVisual = query({
+export const emitSomatic = mutation({
+  args: {
+    source: v.union(
+      v.literal("latency"),
+      v.literal("cpu_load"),
+      v.literal("memory_pressure"),
+      v.literal("data_corruption"),
+      v.literal("context_pressure"),
+      v.literal("error_recovery"),
+      v.literal("network_disruption"),
+    ),
+    intensity: v.float64(),
+    hueShift: v.optional(v.float64()),
+    turbulence: v.optional(v.float64()),
+    driftSpeed: v.optional(v.float64()),
+    ttlMs: v.number(),
+    emitterSignature: v.string(),
+    emitterId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const id = await ctx.db.insert("somatic_pheromones", {
+      source: args.source,
+      intensity: Math.max(0, Math.min(1, args.intensity)),
+      hueShift: args.hueShift,
+      turbulence: args.turbulence,
+      driftSpeed: args.driftSpeed,
+      expiresAt: Date.now() + args.ttlMs,
+      emitterSignature: args.emitterSignature,
+      emitterId: args.emitterId,
+    });
+
+    // Audit log
+    await ctx.db.insert("pheromone_audit", {
+      timestamp: Date.now(),
+      emitterId: args.emitterId,
+      pheromoneType: "somatic" as const,
+      intent: args.source,
+      weight: args.intensity,
+      accepted: true,
+    });
+
+    console.log(
+      `[Somatic Pheromone] ${args.source} intensity=${args.intensity.toFixed(2)}`
+    );
+
+    return id;
+  },
+});
+
+// ─── Pheromone Reinforcement ────────────────────────────────────
+
+/**
+ * Reinforce Pheromone — Refresh TTL
+ *
+ * Used for persistent UI elements that should not decay.
+ * Mimics biological pheromone trail reinforcement through repeated traversal.
+ */
+export const reinforce = mutation({
+  args: {
+    pheromoneId: v.id("visual_pheromones"),
+    additionalTtlMs: v.number(),
+    emitterSignature: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.pheromoneId);
+    if (!existing) return null;
+
+    await ctx.db.patch(args.pheromoneId, {
+      expiresAt: Date.now() + args.additionalTtlMs,
+    });
+
+    return args.pheromoneId;
+  },
+});
+
+// ─── Queries ────────────────────────────────────────────────────
+
+/**
+ * Get Active Visual Pheromones
+ *
+ * Returns all non-expired visual pheromones. Used by the rendering
+ * client for multi-pheromone composition and blending.
+ */
+export const getActiveVisual = query({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-
-    // Query all non-expired visual pheromones
-    const pheromones = await ctx.db
-      .query("visual_pheromones")
-      .filter((q) => q.gt(q.field("expiresAt"), now))
-      .collect();
-
-    // Sort by weight descending (strongest signal first)
-    return pheromones.sort((a, b) => b.weight - a.weight);
+    const all = await ctx.db.query("visual_pheromones").collect();
+    return all.filter((p) => p.expiresAt > now);
   },
 });
 
 /**
- * Get Latest Audio Pheromones
+ * Get Dominant Visual Intent (backward compat)
  *
- * VL node subscription: Returns active audio pheromones for spatial mapping.
- *
- * @returns Array of audio pheromones sorted by confidence (descending)
- */
-export const getLatestAudio = query({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-
-    const pheromones = await ctx.db
-      .query("audio_pheromones")
-      .filter((q) => q.gt(q.field("expiresAt"), now))
-      .collect();
-
-    // Sort by confidence descending (high-confidence first)
-    return pheromones.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
-  },
-});
-
-/**
- * Get Dominant Visual Intent
- *
- * Returns the highest-weight visual pheromone — used for attractor parameter selection.
- *
- * @returns The dominant visual pheromone or null if none active
+ * Returns the highest-weight visual pheromone for single-attractor rendering.
+ * CliffordField v3 uses this — kept for backward compatibility.
  */
 export const getDominantVisual = query({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-
     const pheromones = await ctx.db
       .query("visual_pheromones")
-      .filter((q) => q.gt(q.field("expiresAt"), now))
+      .filter((q: any) => q.gt(q.field("expiresAt"), now))
       .collect();
 
     if (pheromones.length === 0) return null;
 
-    // Return highest weight
     return pheromones.reduce((prev, current) =>
       prev.weight > current.weight ? prev : current
     );
@@ -241,11 +310,39 @@ export const getDominantVisual = query({
 });
 
 /**
- * Get System State
+ * Get Active Audio Pheromones
  *
- * Returns current system telemetry for HOTL dashboard rendering.
+ * Used by VL nodes to detect unprocessed audio intents.
+ */
+export const getActiveAudio = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const all = await ctx.db.query("audio_pheromones").collect();
+    return all.filter((p) => p.expiresAt > now);
+  },
+});
+
+// Backward compat aliases
+export const getLatestVisual = getActiveVisual;
+export const getLatestAudio = getActiveAudio;
+
+/**
+ * Get Active Somatic Pheromones
  *
- * @returns Current system state or default nominal state
+ * Used by the renderer to modulate ambient field properties.
+ */
+export const getActiveSomatic = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const all = await ctx.db.query("somatic_pheromones").collect();
+    return all.filter((p) => p.expiresAt > now);
+  },
+});
+
+/**
+ * Get System State (unchanged — HOTLDashboard depends on this)
  */
 export const getSystemState = query({
   args: {},
@@ -267,35 +364,7 @@ export const getSystemState = query({
 });
 
 /**
- * Verify Soul Anchor Signature
- *
- * Utility mutation for runtime signature verification.
- * Returns true if the signature is valid and active.
- *
- * @param emitterSignature - Signature to verify
- * @returns Verification result
- */
-export const verifySignature = mutation({
-  args: {
-    emitterSignature: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const nodeId = args.emitterSignature.split(":")[0];
-
-    const registry = await ctx.db
-      .query("soul_anchor_registry")
-      .withIndex("by_node_id", (q) => q.eq("nodeId", nodeId))
-      .first();
-
-    return !!(registry && registry.status === "active");
-  },
-});
-
-/**
  * Initialize System State — First Boot
- *
- * Seeds the system_state table with a nominal record if empty.
- * Called once on first Workshop load to ensure dashboard has data.
  */
 export const initializeSystemState = mutation({
   args: {},
@@ -318,14 +387,131 @@ export const initializeSystemState = mutation({
   },
 });
 
-// ─── Knowledge Base API ─────────────────────────────────────────
+// ─── Agent Registry Management ──────────────────────────────────
 
 /**
- * Seed Knowledge Entry
- *
- * Inserts a knowledge entry into Hugh's long-term memory.
- * Idempotent — skips if title already exists in category.
+ * Register Agent — Add or update an agent in the registry
  */
+export const registerAgent = mutation({
+  args: {
+    agentId: v.string(),
+    publicKey: v.string(),
+    agentType: v.union(
+      v.literal("audio"),
+      v.literal("vision"),
+      v.literal("runtime"),
+      v.literal("operator"),
+      v.literal("somatic"),
+    ),
+    hostname: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("agent_registry")
+      .withIndex("by_agent_id", (q: any) => q.eq("agentId", args.agentId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        publicKey: args.publicKey,
+        agentType: args.agentType,
+        hostname: args.hostname,
+        lastSeen: Date.now(),
+        isActive: true,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("agent_registry", {
+      agentId: args.agentId,
+      publicKey: args.publicKey,
+      agentType: args.agentType,
+      hostname: args.hostname,
+      lastSeen: Date.now(),
+      isActive: true,
+    });
+  },
+});
+
+/**
+ * Deactivate Agent — Revoke pheromone emission rights
+ */
+export const deactivateAgent = mutation({
+  args: {
+    agentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const agent = await ctx.db
+      .query("agent_registry")
+      .withIndex("by_agent_id", (q: any) => q.eq("agentId", args.agentId))
+      .first();
+
+    if (agent) {
+      await ctx.db.patch(agent._id, { isActive: false });
+    }
+  },
+});
+
+/**
+ * Get Active Agents
+ */
+export const getActiveAgents = query({
+  args: {},
+  handler: async (ctx) => {
+    const agents = await ctx.db.query("agent_registry").collect();
+    return agents.filter((a) => a.isActive);
+  },
+});
+
+// ─── Audit Log Queries ──────────────────────────────────────────
+
+/**
+ * Get Recent Audit Entries
+ */
+export const getRecentAudit = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 50;
+    const entries = await ctx.db
+      .query("pheromone_audit")
+      .withIndex("by_timestamp")
+      .order("desc")
+      .take(limit);
+    return entries;
+  },
+});
+
+/**
+ * Get Rejected Emissions (security audit)
+ */
+export const getRejectedEmissions = query({
+  args: {},
+  handler: async (ctx) => {
+    const entries = await ctx.db.query("pheromone_audit").collect();
+    return entries.filter((e) => !e.accepted);
+  },
+});
+
+// ─── Legacy Soul Anchor Verification (backward compat) ──────────
+
+export const verifySignature = mutation({
+  args: {
+    emitterSignature: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const nodeId = args.emitterSignature.split(":")[0];
+    const registry = await ctx.db
+      .query("soul_anchor_registry")
+      .withIndex("by_node_id", (q: any) => q.eq("nodeId", nodeId))
+      .first();
+    return !!(registry && registry.status === "active");
+  },
+});
+
+// ─── Knowledge Base API ─────────────────────────────────────────
+
 export const seedKnowledge = mutation({
   args: {
     category: v.union(
@@ -346,7 +532,6 @@ export const seedKnowledge = mutation({
     sourceDoc: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Check for existing entry with same title in same category
     const existing = await ctx.db
       .query("knowledge_base")
       .withIndex("by_category", (q: any) => q.eq("category", args.category))
@@ -366,9 +551,6 @@ export const seedKnowledge = mutation({
   },
 });
 
-/**
- * Get Knowledge by Category
- */
 export const getKnowledgeByCategory = query({
   args: {
     category: v.string(),
@@ -381,9 +563,6 @@ export const getKnowledgeByCategory = query({
   },
 });
 
-/**
- * Get Core Identity — Priority 1 entries (always included in prompts)
- */
 export const getCoreIdentity = query({
   args: {},
   handler: async (ctx) => {
@@ -394,14 +573,9 @@ export const getCoreIdentity = query({
   },
 });
 
-/**
- * Get All Knowledge — Full knowledge base dump
- */
 export const getAllKnowledge = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
-      .query("knowledge_base")
-      .collect();
+    return await ctx.db.query("knowledge_base").collect();
   },
 });

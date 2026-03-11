@@ -54,24 +54,26 @@ export async function processAudioStream(
 
     const result: LFMInferenceResult = await lfmResponse.json();
 
-    // Validate and normalize vector to 1536 dimensions
-    let vector = result.vector ?? [];
-    if (vector.length < 1536) {
-      vector = [...vector, ...new Array(1536 - vector.length).fill(0)];
-    } else if (vector.length > 1536) {
-      vector = vector.slice(0, 1536);
+    // Normalize vector to 1536 dimensions if provided
+    let vector: number[] | undefined;
+    if (result.vector && result.vector.length > 0) {
+      vector = result.vector;
+      if (vector.length < 1536) {
+        vector = [...vector, ...new Array(1536 - vector.length).fill(0)];
+      } else if (vector.length > 1536) {
+        vector = vector.slice(0, 1536);
+      }
     }
 
     // Emit audio pheromone — 5s TTL (ephemeral voice intent)
-    const expiresAt = Date.now() + 5000;
-
     await convex.mutation(api.pheromones.emitAudio, {
+      intent: mapIntentCategory(result.intent),
       transcription: result.transcription,
       intentVector: vector,
-      intentCategory: mapIntentCategory(result.intent),
-      expiresAt,
-      emitterSignature,
       confidence: result.confidence,
+      ttlMs: 5000,
+      emitterSignature: emitterSignature,
+      emitterId: "lfm-audio-browser",
     });
 
     console.log(

@@ -2,12 +2,17 @@
  * The Pheromind Substrate — H.U.G.H. Stigmergic Architecture
  *
  * This schema defines the shared environment that all agents and renderers observe.
- * No explicit commands are passed — only state vectors and spatial coordinates.
+ * No explicit commands are passed — only state vectors, spatial coordinates,
+ * and typed content payloads.
  *
- * Biological analogy: Ants leave pheromone trails. The trails evaporate if not
- * reinforced. This is the digital equivalent — mathematical pheromones with TTL decay.
+ * Design principles:
+ * 1. Pheromones are ephemeral by default (TTL-driven evaporation)
+ * 2. Every pheromone carries cryptographic provenance
+ * 3. Content payloads are typed unions — the renderer interprets based on intent
+ * 4. Spatial coordinates are always 3D (2D clients project; XR clients use all axes)
+ * 5. Weight determines attractor gravity — higher weight = stronger collapse
  *
- * @version 2.0 — Production Specification
+ * @version 2.1 — Whitepaper v2 Alignment
  * @author Robert "Grizz" Munro / GrizzlyMedicine
  * @classification Production Ready
  */
@@ -15,152 +20,299 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// ─── Shared Types ───────────────────────────────────────────────
+
+const spatialPosition = v.object({
+  x: v.float64(),
+  y: v.float64(),
+  z: v.float64(),
+});
+
+const attractorHint = v.optional(v.object({
+  a: v.float64(),
+  b: v.float64(),
+  c: v.float64(),
+  d: v.float64(),
+}));
+
+// Content payload variants — what the pheromone wants to render
+const contentPayload = v.union(
+  // No content — pure attractor state change (ambient, alert, processing)
+  v.object({
+    type: v.literal("ambient"),
+  }),
+  // Media playback — video, audio, or image stream
+  v.object({
+    type: v.literal("media"),
+    sourceUrl: v.string(),
+    mediaType: v.union(v.literal("video"), v.literal("audio"), v.literal("image")),
+    autoplay: v.optional(v.boolean()),
+    loop: v.optional(v.boolean()),
+    aspectRatio: v.optional(v.string()),
+  }),
+  // Text display — formatted text content
+  v.object({
+    type: v.literal("text"),
+    content: v.string(),
+    format: v.optional(v.union(
+      v.literal("markdown"),
+      v.literal("plaintext"),
+      v.literal("code"),
+      v.literal("terminal"),
+    )),
+    fontSize: v.optional(v.float64()),
+  }),
+  // Dashboard panel — structured data visualization
+  v.object({
+    type: v.literal("dashboard"),
+    panels: v.array(v.object({
+      id: v.string(),
+      label: v.string(),
+      dataSource: v.string(),
+      vizType: v.union(
+        v.literal("metric"),
+        v.literal("chart"),
+        v.literal("status"),
+        v.literal("log"),
+      ),
+      position: spatialPosition,
+      size: v.object({ width: v.float64(), height: v.float64() }),
+    })),
+  }),
+  // Interactive control — buttons, toggles, sliders
+  v.object({
+    type: v.literal("control"),
+    controlType: v.union(
+      v.literal("button"),
+      v.literal("toggle"),
+      v.literal("slider"),
+      v.literal("select"),
+    ),
+    label: v.string(),
+    value: v.optional(v.string()),
+    action: v.string(),
+    actionPayload: v.optional(v.string()),
+  }),
+  // Navigation — radial menu or linear nav
+  v.object({
+    type: v.literal("navigation"),
+    items: v.array(v.object({
+      id: v.string(),
+      label: v.string(),
+      icon: v.optional(v.string()),
+      action: v.string(),
+    })),
+    layout: v.union(v.literal("radial"), v.literal("linear"), v.literal("orbital")),
+  }),
+  // Home Assistant entity — smart home control surface
+  v.object({
+    type: v.literal("ha_entity"),
+    entityId: v.string(),
+    domain: v.string(),
+    friendlyName: v.string(),
+    currentState: v.optional(v.string()),
+  }),
+  // Raw HTML — escape hatch for complex content (rendered via OffscreenCanvas)
+  v.object({
+    type: v.literal("html"),
+    markup: v.string(),
+    sandboxed: v.boolean(),
+  }),
+);
+
+// ─── Schema ─────────────────────────────────────────────────────
+
 export default defineSchema({
   /**
    * Visual Pheromones — Dropped by Vision-Language agents
    *
-   * These vectors dictate the physical manifestation of the particle system.
-   * The CliffordField component subscribes to this table and interpolates
-   * attractor parameters (a, b, c, d) based on the weight and intent.
+   * The primary rendering signal. Each visual pheromone represents a discrete
+   * UI intent with spatial coordinates, attractor parameters, and content payload.
+   * The CliffordField component subscribes and collapses the particle field.
    *
    * When weight spikes, particles collapse from chaotic vortex → functional UI plane.
    * When TTL expires, the UI disintegrates back to ambient state.
    */
   visual_pheromones: defineTable({
-    /**
-     * The UI state intent emitted by the Vision-Language agent.
-     * Each intent maps to specific Clifford attractor parameters:
-     * - idle: a=-1.4, b=1.6, c=1.0, d=0.7 (chaotic vortex)
-     * - media_playback: a=0.0, b=0.0, c=1.0, d=1.0 (planar grid)
-     * - spatial_search: a=1.7, b=1.7, c=0.6, d=1.2 (high-frequency ring)
-     * - text_display: a=-1.7, b=1.3, c=-0.1, d=-1.2 (segmented clusters)
-     */
     intent: v.union(
       v.literal("idle"),
       v.literal("media_playback"),
       v.literal("spatial_search"),
-      v.literal("text_display")
+      v.literal("text_display"),
+      v.literal("alert"),
+      v.literal("dashboard"),
+      v.literal("navigation"),
+      v.literal("control"),
+      v.literal("ha_control"),
     ),
 
-    /**
-     * 3D spatial coordinates for AR/VR manifesting.
-     * In 2D web views, Z can be used for parallax depth or ignored.
-     * Coordinates are normalized (-1.0 to 1.0) for cross-device compatibility.
-     */
-    position: v.object({
-      x: v.float64(),
-      y: v.float64(),
-      z: v.float64(),
+    position: spatialPosition,
+
+    // Dimensions of the collapsed UI surface (normalized, 0.0 to 1.0 of viewport)
+    size: v.object({
+      width: v.float64(),
+      height: v.float64(),
     }),
 
-    /**
-     * Pheromone concentration weight (0.0 to 1.0).
-     * Dictates the gravitational pull on Clifford attractor parameters.
-     * Higher weight = stronger structural collapse toward functional UI.
-     */
+    // Pheromone concentration weight (0.0 to 1.0)
     weight: v.float64(),
 
-    /**
-     * Time-To-Live decay mechanism (Unix timestamp in milliseconds).
-     * Biological analogy: Pheromones evaporate if not reinforced.
-     * Indexed for O(log N) garbage collection via Cron job.
-     */
+    // Optional attractor parameter override — bypasses intent-to-params lookup
+    attractorOverride: attractorHint,
+
+    // Content this pheromone wants to render once the field stabilizes
+    content: contentPayload,
+
+    // Z-ordering priority when multiple pheromones overlap spatially
+    layer: v.optional(v.number()),
+
+    // If true, emitting agent is expected to refresh TTL periodically
+    persistent: v.optional(v.boolean()),
+
+    // TTL decay (Unix timestamp ms) — pheromones evaporate if not reinforced
     expiresAt: v.number(),
 
-    /**
-     * Cryptographic signature of the emitting agent.
-     * Verified against the Soul Anchor registry to prevent
-     * unauthorized pheromone injection (hallucinatory attacks).
-     *
-     * Format: "{node_id}:{hardware_signature}:{timestamp}"
-     * Example: "vl_node_alpha:xyz123:1710123456789"
-     */
+    // Cryptographic signature of the emitting agent
     emitterSignature: v.string(),
 
-    /**
-     * Optional metadata for debugging and audit trails.
-     * Not used in rendering — purely for HOTL operator visibility.
-     */
+    // Human-readable emitter identifier for audit logging
+    emitterId: v.string(),
+
+    // Optional debug metadata (not used in rendering)
     metadata: v.optional(v.object({
       sourceCamera: v.optional(v.string()),
       confidenceScore: v.optional(v.float64()),
       relatedAudioPheromoneId: v.optional(v.id("audio_pheromones")),
     })),
   })
-    .index("by_expiration", ["expiresAt"])  // TTL cleanup index
-    .index("by_weight", ["weight"])         // Find dominant intent
-    .index("by_intent", ["intent"]),        // Filter by UI state
+    .index("by_expiration", ["expiresAt"])
+    .index("by_intent", ["intent"])
+    .index("by_emitter", ["emitterId"]),
 
   /**
    * Audio Pheromones — Dropped by LFM 2.5 Audio nodes
    *
-   * These are the scout trails. The Vision-Language node observes
-   * this table, sniffs for new audio intents, and emits corresponding
-   * visual pheromones with spatial coordinates.
-   *
-   * Indirect coordination: Audio node never calls VL node directly.
-   * They communicate solely through this shared substrate.
+   * Scout trails. The VL node observes this table, sniffs for new
+   * audio intents, and emits corresponding visual pheromones with
+   * spatial coordinates. Indirect coordination only.
    */
   audio_pheromones: defineTable({
-    /**
-     * Optional transcription for debugging and secondary text rendering.
-     * Not required for all audio intents (e.g., non-verbal sounds).
-     */
+    // Classified intent from the audio model
+    intent: v.string(),
+
+    // Optional transcription for debugging, accessibility, or text rendering
     transcription: v.optional(v.string()),
 
-    /**
-     * 1536-dimensional vector embedding representing semantic audio intent.
-     * Generated by LFM 2.5-Audio-1.5B's final hidden state.
-     * Used for vector similarity search (find related intents).
-     */
-    intentVector: v.array(v.float64()),
+    // 1536-dimensional semantic embedding (optional — not all sources produce vectors)
+    intentVector: v.optional(v.array(v.float64())),
 
-    /**
-     * Classified intent category for downstream routing.
-     * Examples: "media_playback", "system_query", "navigation_request"
-     */
-    intentCategory: v.string(),
+    // Confidence score from the LFM inference (0.0 to 1.0)
+    confidence: v.float64(),
 
-    /**
-     * Time-To-Live decay (Unix timestamp in milliseconds).
-     * Audio pheromones typically have shorter TTL than visual
-     * (voice intent is ephemeral — decays faster).
-     */
+    // Raw parameters extracted from the voice command (JSON-encoded)
+    extractedParams: v.optional(v.string()),
+
+    // TTL decay (Unix timestamp ms)
     expiresAt: v.number(),
 
-    /**
-     * Cryptographic signature — same Soul Anchor verification
-     * as visual pheromones. Prevents spoofed audio injection.
-     */
+    // Cryptographic signature
     emitterSignature: v.string(),
 
-    /**
-     * Optional confidence score from the LFM inference.
-     * Low confidence (<0.6) may trigger secondary verification.
-     */
-    confidence: v.optional(v.float64()),
+    // Human-readable emitter identifier
+    emitterId: v.string(),
   })
-    .index("by_expiration", ["expiresAt"])  // TTL cleanup index
-    .index("by_confidence", ["confidence"]), // Find high-confidence intents
+    .index("by_expiration", ["expiresAt"])
+    .index("by_intent", ["intent"]),
 
   /**
-   * System State — Global telemetry for HOTL operator visibility
+   * Somatic Pheromones — Infrastructure health → embodied sensation
    *
-   * This table is written by the runtime and observed by the
-   * Workshop UI for real-time system health visualization.
+   * System health signals mapped to ambient field modifications.
+   * These modulate the attractor field (color, drift speed, turbulence)
+   * without collapsing into functional UI. Continuous ambient feedback.
+   */
+  somatic_pheromones: defineTable({
+    source: v.union(
+      v.literal("latency"),
+      v.literal("cpu_load"),
+      v.literal("memory_pressure"),
+      v.literal("data_corruption"),
+      v.literal("context_pressure"),
+      v.literal("error_recovery"),
+      v.literal("network_disruption"),
+    ),
+
+    // Severity (0.0 = nominal, 1.0 = critical)
+    intensity: v.float64(),
+
+    // Color hue shift to apply to the ambient field (0-360 degrees)
+    hueShift: v.optional(v.float64()),
+
+    // Turbulence multiplier for the attractor (1.0 = normal, >1.0 = agitated)
+    turbulence: v.optional(v.float64()),
+
+    // Drift speed modifier (1.0 = normal, <1.0 = sluggish, >1.0 = frantic)
+    driftSpeed: v.optional(v.float64()),
+
+    expiresAt: v.number(),
+    emitterSignature: v.string(),
+    emitterId: v.string(),
+  })
+    .index("by_expiration", ["expiresAt"])
+    .index("by_source", ["source"]),
+
+  /**
+   * Agent Registry — Authorized pheromone emitters
    *
-   * When system events occur (latency spikes, data corruption, etc.),
-   * the UI renders somatic interpretations (cave cold, fear toxin, etc.).
+   * Stores public keys and metadata of all authorized agents.
+   * Mutation validators verify emitterSignature before committing
+   * any pheromone to the substrate.
+   */
+  agent_registry: defineTable({
+    agentId: v.string(),
+    publicKey: v.string(),
+    agentType: v.union(
+      v.literal("audio"),
+      v.literal("vision"),
+      v.literal("runtime"),
+      v.literal("operator"),
+      v.literal("somatic"),
+    ),
+    hostname: v.optional(v.string()),
+    lastSeen: v.number(),
+    isActive: v.boolean(),
+  })
+    .index("by_agent_id", ["agentId"])
+    .index("by_type", ["agentType"]),
+
+  /**
+   * Pheromone Audit Log — HOTL operator visibility
+   *
+   * Immutable record of all pheromone emissions for review.
+   * Supports the Human-ON-the-Loop oversight model.
+   */
+  pheromone_audit: defineTable({
+    timestamp: v.number(),
+    emitterId: v.string(),
+    pheromoneType: v.union(
+      v.literal("visual"),
+      v.literal("audio"),
+      v.literal("somatic"),
+    ),
+    intent: v.string(),
+    weight: v.float64(),
+    accepted: v.boolean(),
+    rejectionReason: v.optional(v.string()),
+  })
+    .index("by_timestamp", ["timestamp"])
+    .index("by_emitter", ["emitterId"]),
+
+  // ─── Operational Tables (not in whitepaper, essential for runtime) ──
+
+  /**
+   * System State — Global telemetry for HOTL dashboard
    */
   system_state: defineTable({
-    /**
-     * Current system health status.
-     * Maps to somatic interpretations in the UI:
-     * - "degraded" → cave cold sensation (52°F phantom numbness)
-     * - "corrupted" → fear toxin vertigo (Scarecrow protocol)
-     * - "pressure" → tunnel vision (cowl tightening)
-     * - "recovery" → Bane spinal compression (Knightfall protocol)
-     */
     status: v.union(
       v.literal("nominal"),
       v.literal("degraded"),
@@ -168,76 +320,31 @@ export default defineSchema({
       v.literal("pressure"),
       v.literal("recovery")
     ),
-
-    /**
-     * Real-time telemetry metrics.
-     * These drive the somatic rendering layer.
-     */
     telemetry: v.object({
-      latencyMs: v.number(),         // Network RTT
-      corruptionRate: v.float64(),   // Data integrity errors / total ops
-      contextPressure: v.float64(),  // Context window utilization (0-1)
-      computeLoad: v.float64(),      // GPU/CPU utilization (0-1)
-      activeAgents: v.number(),      // Number of active LFM nodes
+      latencyMs: v.number(),
+      corruptionRate: v.float64(),
+      contextPressure: v.float64(),
+      computeLoad: v.float64(),
+      activeAgents: v.number(),
     }),
-
-    /**
-     * Last updated timestamp for freshness validation.
-     */
     updatedAt: v.number(),
-
-    /**
-     * Optional somatic overlay toggle.
-     * If false, UI renders raw metrics instead of embodied interpretation.
-     */
     somaticOverlayEnabled: v.optional(v.boolean()),
   }),
 
   /**
-   * Soul Anchor Registry — Cryptographic identity gate
-   *
-   * Stores authorized hardware signatures. Before any agent can emit
-   * pheromones, its signature is verified against this registry.
-   *
-   * "Break-Once, Halt-Everywhere" (BOHE) protection:
-   * If signature verification fails, the boot process terminates immediately.
+   * Soul Anchor Registry — Legacy cryptographic identity gate
+   * Kept for backward compatibility during migration to agent_registry.
    */
   soul_anchor_registry: defineTable({
-    /**
-     * Unique node identifier (e.g., "audio_node_1", "vl_node_alpha").
-     */
     nodeId: v.string(),
-
-    /**
-     * Hardware-bound cryptographic signature.
-     * Generated during factory provisioning via TPM/PUF.
-     * Format: Base64-encoded ECDSA signature of hardware payload.
-     */
     hardwareSignature: v.string(),
-
-    /**
-     * Public key for signature verification (PEM format).
-     * Stored securely — never transmitted to clients.
-     */
     publicKeyPem: v.string(),
-
-    /**
-     * Registration timestamp for audit trails.
-     */
     registeredAt: v.number(),
-
-    /**
-     * Node status — can be revoked if compromised.
-     */
     status: v.union(
       v.literal("active"),
       v.literal("revoked"),
       v.literal("pending_verification")
     ),
-
-    /**
-     * Optional metadata for operational tracking.
-     */
     metadata: v.optional(v.object({
       hardwareId: v.optional(v.string()),
       provisionedBy: v.optional(v.string()),
@@ -249,15 +356,6 @@ export default defineSchema({
 
   /**
    * Knowledge Base — Hugh's Long-Term Memory
-   *
-   * Distilled briefings, architecture docs, identity anchors, and
-   * operational knowledge. Categorized and prioritized for selective
-   * context injection during LFM inference calls.
-   *
-   * Priority levels:
-   * - 1: Core identity (ALWAYS included in system prompt)
-   * - 2: Operational (included when contextually relevant)
-   * - 3: Reference (available on-demand for deep queries)
    */
   knowledge_base: defineTable({
     category: v.union(
