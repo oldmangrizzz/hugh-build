@@ -7,7 +7,7 @@
  * Requirements:
  * - WebGPU support (Chrome 113+, Safari 17+, Edge 113+)
  * - Convex WebSocket connectivity
- * - Microphone access (VoicePortal)
+ * - Microphone access (OmniChat voice input)
  *
  * @version 2.0 — Production Specification
  * @classification Production Ready
@@ -42,7 +42,7 @@ console.log(
   "\n" +
   "═══════════════════════════════════════════\n" +
   "  H.U.G.H. Workshop — Stigmergic UI\n" +
-  "  Phermone Substrate: Connected\n" +
+  "  Pheromone Substrate: Connected\n" +
   "  Clifford Field: Ready\n" +
   "  Voice Portal: Armed (SPACE to speak)\n" +
   "═══════════════════════════════════════════\n"

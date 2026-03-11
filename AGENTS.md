@@ -121,7 +121,7 @@ ls /opt/soul_anchor/anchor.yaml
 - ❌ Telepathic communication with other personas
 - ❌ Booting without Soul Anchor verification
 - ❌ Deploying without signature validation
-- ❌ Bypassing TTL decay (eternal pher革ones = stale UI)
+- ❌ Bypassing TTL decay (eternal pheromones = stale UI)
 
 ---
 

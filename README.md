@@ -10,10 +10,10 @@ A production-ready, voice-first, spatially-aware user interface that replaces th
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  VoicePortal (Spacebar voice input)                         │
+│  OmniChat (Text + Voice input)                               │
 │       │                                                     │
 │       ▼                                                     │
-│  LFM 2.5 Audio Node → audio_pheromone (Convex)              │
+│  LFM 2.5 Thinking Node → streaming inference (SSE)          │
 │       │                                                     │
 │       ▼                                                     │
 │  VL Node observes → emits visual_pheromone (3D coords)      │
@@ -75,9 +75,8 @@ rsync -avz --delete dist/ root@187.124.28.147:/var/www/workshop/
 | Component | Purpose |
 |-----------|---------|
 | `CliffordField.tsx` | 100K particle WebGPU renderer |
-| `VoicePortal.tsx` | Spacebar voice input → pher革one emission |
 | `HOTLDashboard.tsx` | System telemetry + somatic overlay |
-| `OmniChat.tsx` | LFM 2.5 streaming responses |
+| `OmniChat.tsx` | LFM 2.5 streaming chat + voice input |
 | `WorkshopApp.tsx` | Main entry point (Convex provider) |
 
 ---
@@ -88,8 +87,8 @@ rsync -avz --delete dist/ root@187.124.28.147:/var/www/workshop/
 
 | Table | Purpose |
 |-------|---------|
-| `visual_pher革ones` | UI state intents with 3D coords + TTL |
-| `audio_pher革ones` | Voice intent vectors + transcriptions |
+| `visual_pheromones` | UI state intents with 3D coords + TTL |
+| `audio_pheromones` | Voice intent vectors + transcriptions |
 | `system_state` | Telemetry (latency, corruption, pressure, load) |
 | `soul_anchor_registry` | Authorized node signatures |
 
@@ -109,7 +108,7 @@ Cryptographic identity gate at `/opt/soul_anchor/anchor.yaml`.
 1. Read YAML file
 2. Verify ECDSA signature against OEM public key
 3. If invalid: `process.exit(1)` immediately
-4. If valid: Proceed to load pher革one emitters
+4. If valid: Proceed to load pheromone emitters
 
 **Threat model:** BORE (Break-Once, Run-Everywhere) attacks.
 

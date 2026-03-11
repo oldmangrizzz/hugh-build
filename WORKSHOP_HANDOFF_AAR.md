@@ -21,13 +21,13 @@ Built the **H.U.G.H. Workshop UI** from scratch — a stigmergic, voice-first, s
 |-----------|------|--------|
 | **Convex Schema** | `convex/schema.ts` | ✅ Production ready |
 | **TTL Evaporation** | `convex/crons.ts` | ✅ Runs every 2s |
-| **Phermone API** | `convex/pher革ones.ts` | ✅ Emit/observe/verify |
+| **Pheromone API** | `convex/pheromones.ts` | ✅ Emit/observe/verify |
 | **Clifford Field** | `components/CliffordField.tsx` | ✅ 100K WebGPU particles |
 | **Voice Portal** | `components/VoicePortal.tsx` | ✅ Spacebar voice input |
 | **HOTL Dashboard** | `components/HOTLDashboard.tsx` | ✅ Telemetry + somatic |
 | **OmniChat** | `components/OmniChat.tsx` | ✅ LFM 2.5 streaming |
 | **Soul Anchor** | `boot/soul_anchor.ts` | ✅ Crypto identity gate |
-| **Audio Service** | `services/hughAudioService.ts` | ✅ Audio → pher革one |
+| **Audio Service** | `services/hughAudioService.ts` | ✅ Audio → pheromone |
 | **VL Node** | `services/vl_node.py` | ✅ Spatial mapping |
 | **Deploy Script** | `deploy.sh` | ✅ Build + sync + verify |
 
@@ -38,18 +38,18 @@ Built the **H.U.G.H. Workshop UI** from scratch — a stigmergic, voice-first, s
 ```
 hugh-build/
 ├── convex/
-│   ├── schema.ts              # 4 tables: visual_pherm难 es, audio_pherm难 es, system_state, soul_anchor_registry
+│   ├── schema.ts              # 4 tables: visual_pheromones, audio_pheromones, system_state, soul_anchor_registry
 │   ├── crons.ts               # Evaporation job (2s interval)
-│   ├── pherm难 ones.ts        # Mutations + queries (emitVisual, emitAudio, getLatestVisual, etc.)
+│   ├── pheromones.ts        # Mutations + queries (emitVisual, emitAudio, getLatestVisual, etc.)
 │   └── generated/api.ts       # Convex API stub
 ├── components/
 │   ├── CliffordField.tsx      # WebGPU compute shader (100K particles, Clifford attractor)
-│   ├── VoicePortal.tsx        # Spacebar recording → audio pherm难 e emission
+│   ├── VoicePortal.tsx        # Spacebar recording → audio pheromone emission
 │   ├── HOTLDashboard.tsx      # System telemetry + somatic overlay (cave cold, fear toxin, etc.)
 │   └── OmniChat.tsx           # LFM 2.5 streaming responses (thinking trace + tokens)
 ├── services/
-│   ├── hughAudioService.ts    # TypeScript: calls LFM 2.5 audio endpoint, emits pherm难 e
-│   └── vl_node.py             # Python: observes substrate, captures camera, emits visual pherm难 e
+│   ├── hughAudioService.ts    # TypeScript: calls LFM 2.5 audio endpoint, emits pheromone
+│   └── vl_node.py             # Python: observes substrate, captures camera, emits visual pheromone
 ├── boot/
 │   └── soul_anchor.ts         # Boot-time crypto verification (halts if invalid)
 ├── WorkshopApp.tsx            # Main app (ConvexProvider + all components)
@@ -93,8 +93,8 @@ hugh-build/
 │  CONVEX SUBSTRATE                │
 │  sincere-albatross-464           │
 │                                  │
-│  - visual_pherm难 es (TTL decay)  │
-│  - audio_pherm难 es (TTL decay)   │
+│  - visual_pheromones (TTL decay)  │
+│  - audio_pheromones (TTL decay)   │
 │  - system_state (telemetry)      │
 │  - soul_anchor_registry          │
 └──────────────────────────────────┘
@@ -106,7 +106,7 @@ hugh-build/
 │ (16GB VPS :8080)│  │ (32GB Proxmox)  │
 │                 │  │                 │
 │ processAudio →  │  │ observe audio → │
-│ emit pherm难 e    │  │ capture frame → │
+│ emit pheromone    │  │ capture frame → │
 │                 │  │ emit visual     │
 └─────────────────┘  └─────────────────┘
 ```
@@ -134,7 +134,7 @@ hugh-build/
 | VL node camera integration | Coded, untested | `vl_node.py` expects camera endpoint — may need HA or AR HUD URL |
 | Soul Anchor file | Not created | `/opt/soul_anchor/anchor.yaml` must exist on VPS before deploy |
 | Convex generated API | Stub only | `npx convex dev` will regenerate with real types |
-| End-to-end pher革one flow | Coded, untested | Voice → audio pher革one → VL → visual pher革one → particles unverified |
+| End-to-end pheromone flow | Coded, untested | Voice → audio pheromone → VL → visual pheromone → particles unverified |
 | Mapbox integration | Not started | Not in scope for this build (future spatial layer) |
 | Home Assistant bridge | Exists in other repo | Not wired into this UI (future HOTL telemetry source) |
 
@@ -191,10 +191,10 @@ cat /opt/soul_anchor/anchor.yaml | head -20
 
 | File | Purpose |
 |------|---------|
-| `convex/schema.ts` | Pherm难 one substrate — 4 tables with TTL indexes |
+| `convex/schema.ts` | Pheromone substrate — 4 tables with TTL indexes |
 | `convex/crons.ts` | Evaporation job — runs every 2s, purges expired records |
 | `components/CliffordField.tsx` | 100K particle WebGPU renderer — Clifford attractor (a,b,c,d params) |
-| `components/VoicePortal.tsx` | Spacebar voice input — Web Audio → emits audio pherm难 e |
+| `components/VoicePortal.tsx` | Spacebar voice input — Web Audio → emits audio pheromone |
 | `services/hughAudioService.ts` | LFM 2.5 audio inference — calls :8080, emits to Convex |
 | `services/vl_node.py` | Vision-language node — observes audio, captures camera, emits visual |
 | `boot/soul_anchor.ts` | Crypto identity gate — boot halts if signature invalid |
@@ -226,9 +226,9 @@ Before marking "done":
 - [ ] `npm run dev` starts without TypeScript errors
 - [ ] CliffordField renders 100K particles (check `chrome://gpu`)
 - [ ] VoicePortal captures audio (hold SPACE, speak, release)
-- [ ] Audio pher革one appears in Convex dashboard
-- [ ] VL node detects pher革one (check logs)
-- [ ] Visual pher革one emitted with 3D coords
+- [ ] Audio pheromone appears in Convex dashboard
+- [ ] VL node detects pheromone (check logs)
+- [ ] Visual pheromone emitted with 3D coords
 - [ ] Particles collapse to media_playback plane
 - [ ] Soul Anchor exists at `/opt/soul_anchor/anchor.yaml`
 - [ ] `./deploy.sh --prod` syncs to VPS
