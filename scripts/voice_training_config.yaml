@@ -1,0 +1,158 @@
+# =============================================================================
+# H.U.G.H. Voice Fine-Tuning Configuration
+# =============================================================================
+# Target: LFM2.5-Audio-1.5B via Liquid AI's leap-finetune
+# Method: LoRA (Parameter-Efficient Fine-Tuning)
+# Purpose: Adapt voice output to match target speaker profile
+#          (deep, gruff, authoritative, Irish/Scottish undertones)
+#
+# Hardware: Tested on 1x H100 80GB. Should work on 1x A100 80GB with
+#           reduced batch size. Multi-GPU supported via Ray Train.
+#
+# Usage:
+#   cd leap-finetune
+#   uv run leap-finetune /path/to/this/voice_training_config.yaml
+# =============================================================================
+
+# --- Project Metadata ---
+# Unique project name (alphanumeric, hyphens, underscores only)
+project_name: "hugh-voice-gleeson-lora"
+
+# --- Base Model ---
+# The text backbone model. For audio fine-tuning, leap-finetune operates
+# on the LM component (1.2B params) of the LFM2.5-Audio-1.5B pipeline.
+# The audio encoder (115M) and LFM-based detokenizer are frozen.
+model_name: "LFM2-1.2B"
+
+# --- Training Type ---
+# SFT (Supervised Fine-Tuning) for voice adaptation.
+# The model learns to produce audio tokens conditioned on text + speaker style.
+training_type: "sft"
+
+# --- Dataset Configuration ---
+dataset:
+  # Path to the prepared training data.
+  # Can be: local path (.jsonl/.parquet), HuggingFace Hub ID, or cloud URI.
+  # Use prepare_voice_data.py to generate this manifest.
+  path: "./voice_training_data/manifest.jsonl"
+
+  # Dataset type — SFT uses the messages format
+  type: "sft"
+
+  # Limit samples for quick testing (set to null for full dataset)
+  # Start with 100 to validate the pipeline, then remove for real training
+  limit: null
+
+  # Train/test split ratio
+  test_size: 0.1
+
+# --- Training Hyperparameters ---
+training_config:
+  # Inherit defaults from leap-finetune's DEFAULT_SFT base config.
+  # Any fields below override the defaults.
+  extends: "DEFAULT_SFT"
+
+  # Number of training epochs.
+  # Voice adaptation typically converges in 3-5 epochs.
+  # Start with 3, increase if val loss is still dropping.
+  num_train_epochs: 5
+
+  # Batch size per GPU.
+  # For 1x A100 80GB with LoRA: 2-4 is safe.
+  # For 1x H100 80GB: can go up to 4-8.
+  # Reduce if OOM; compensate with gradient_accumulation_steps.
+  per_device_train_batch_size: 2
+
+  # Effective batch = per_device * gradient_accumulation * num_gpus
+  # Target effective batch of 16-32 for stable training.
+  gradient_accumulation_steps: 8
+
+  # Learning rate — lower than default for voice fine-tuning.
+  # Too high = catastrophic forgetting of base voice capabilities.
+  # Too low = won't learn the target voice characteristics.
+  # Range: 1e-5 to 5e-5 for LoRA voice adaptation.
+  learning_rate: 2e-5
+
+  # Cosine schedule lets the LR warm up then decay smoothly.
+  # Better than linear for voice fine-tuning convergence.
+  lr_scheduler_type: "cosine"
+
+  # Warmup: 10% of training for stable early gradients
+  warmup_ratio: 0.1
+
+  # Logging and evaluation
+  logging_steps: 5
+  logging_first_step: true
+  save_strategy: "epoch"
+  eval_strategy: "epoch"
+
+  # W&B experiment tracking (optional but recommended)
+  # Set WANDB_API_KEY env var to enable cloud sync.
+  wandb_logging: true
+
+  # Performance optimizations
+  # Liger Kernel: fused attention kernels for ~20% speedup
+  # use_liger_kernel: true  # Uncomment if installed
+
+  # DeepSpeed is inherited from DEFAULT_SFT (ZeRO Stage 2)
+  # This handles memory optimization automatically.
+
+# --- LoRA / PEFT Configuration ---
+peft_config:
+  # Inherit from DEFAULT_LORA which targets:
+  #   GLU modules: w1, w2, w3
+  #   MHA modules: q_proj, k_proj, v_proj, out_proj
+  #   Conv modules: in_proj, out_proj
+  extends: "DEFAULT_LORA"
+
+  # Enable PEFT (required for LoRA)
+  use_peft: true
+
+  # LoRA rank — controls adapter capacity.
+  # r=8:  Good starting point, fast training, smaller checkpoint (~50MB)
+  # r=16: More capacity for nuanced voice characteristics
+  # r=32: Maximum fidelity, slower training, larger checkpoint
+  # For voice cloning, r=16 is the sweet spot.
+  r: 16
+
+  # LoRA alpha — scaling factor. Rule of thumb: alpha = 2 * r
+  lora_alpha: 32
+
+  # Dropout for regularization. 0.05-0.1 for small datasets.
+  lora_dropout: 0.05
+
+# =============================================================================
+# NOTES FOR THE OPERATOR
+# =============================================================================
+#
+# BEFORE TRAINING:
+# 1. Prepare audio data:
+#    python scripts/prepare_voice_data.py ./raw_gleeson_audio \
+#        --output ./voice_training_data --transcribe
+#
+# 2. CRITICAL: Manually verify transcripts in manifest.jsonl
+#    Whisper auto-transcription is ~95% accurate. Fix errors by hand.
+#    Bad transcripts = bad voice alignment = garbled output.
+#
+# 3. Minimum viable dataset: 20-30 minutes of clean audio (~150-300 segments)
+#    Ideal dataset: 1-3 hours of diverse speech (~500-1500 segments)
+#
+# DURING TRAINING:
+# - Monitor eval_loss in W&B or terminal output
+# - Training on 1x H100 with this config: ~30-60 min for 1 hour of data
+# - Training on 1x A100 80GB: ~45-90 min (reduce batch to 1 if OOM)
+#
+# AFTER TRAINING:
+# 1. Checkpoints saved to: outputs/sft/hugh-voice-gleeson-lora/
+# 2. Bundle for LEAP deployment:
+#    uv run leap-bundle <checkpoint_path>
+# 3. Test with:
+#    liquid-audio-demo  # Load the fine-tuned checkpoint
+#
+# COMPUTE OPTIONS:
+# - HuggingFace Spaces: A100 available via Pro subscription (~$2/hr)
+# - Google Colab Pro: A100 available (~$0.50/hr with credits)
+# - Lambda Labs: H100 on-demand (~$2.50/hr)
+# - RunPod: H100 spot instances (~$2/hr)
+# - Local: Any NVIDIA GPU with 40GB+ VRAM (A6000, A100, H100)
+# =============================================================================
