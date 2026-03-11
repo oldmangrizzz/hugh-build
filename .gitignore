@@ -45,3 +45,4 @@ mcp_agent.secrets.yaml
 # Voice training raw audio (212MB, stored locally)
 *.wav
 voice_raw/*.wav
+__pycache__/

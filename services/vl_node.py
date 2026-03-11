@@ -18,7 +18,10 @@ Communication is purely through the shared Convex environment.
 @classification Production Ready
 """
 
+import io
+import os
 import time
+
 import requests
 import numpy as np
 from typing import Dict, List, Optional
@@ -27,10 +30,14 @@ from datetime import datetime
 # Convex Python client (pip install convex)
 from convex import ConvexClient
 
-# Configuration
-CONVEX_URL = "https://your-convex-url.convex.cloud"
-LFM_VL_ENDPOINT = "http://localhost:8081/vl-inference"
-CAMERA_ENDPOINT = "http://localhost:8123/api/camera/snap"  # Home Assistant or AR HUD
+# Configuration — override via environment variables
+# Required env vars:
+#   CONVEX_URL         — Convex deployment URL (e.g. https://uncommon-cricket-894.convex.cloud)
+#   LFM_VL_ENDPOINT    — LFM 2.5-VL inference endpoint
+#   CAMERA_ENDPOINT    — Camera/AR HUD snapshot endpoint
+CONVEX_URL = os.environ.get("CONVEX_URL", "https://uncommon-cricket-894.convex.cloud")
+LFM_VL_ENDPOINT = os.environ.get("LFM_VL_ENDPOINT", "http://localhost:8080/v1/chat/completions")
+CAMERA_ENDPOINT = os.environ.get("CAMERA_ENDPOINT", "http://localhost:8082/capture")
 POLL_INTERVAL = 0.1  # 100ms — matches biological saccade frequency
 VISUAL_TTL = 10000  # 10 seconds for visual pheromones
 
@@ -68,7 +75,6 @@ class VisionLanguageNode:
 
             # Decode JPEG → RGB numpy array
             from PIL import Image
-            import io
 
             img = Image.open(io.BytesIO(response.content)).convert("RGB")
             img = img.resize((512, 512))  # LFM 2.5-VL native resolution
