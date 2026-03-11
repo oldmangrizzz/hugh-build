@@ -19,6 +19,7 @@
 import React, { useEffect } from 'react';
 import { ConvexProvider, ConvexReactClient, useMutation } from "convex/react";
 import { CliffordField } from "./components/CliffordField";
+import { ContentProjection } from "./components/ContentProjection";
 import { HOTLDashboard } from "./components/HOTLDashboard";
 import { OmniChat } from "./components/OmniChat";
 import { useSomaticEmitter } from "./services/useSomaticEmitter";
@@ -43,6 +44,9 @@ const WorkshopInner: React.FC = () => {
     <>
       {/* Hugh's body — particle field background */}
       <CliffordField />
+
+      {/* Content surfaces — crystallized on particle field */}
+      <ContentProjection />
 
       {/* Identity header */}
       <div style={{

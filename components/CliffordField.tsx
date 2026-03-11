@@ -41,6 +41,14 @@ interface SomaticState {
   driftSpeed: number;  // multiplier, 1.0 = normal
 }
 
+// Content crystallization zone — where particles slow and grid-align
+interface ContentZone {
+  cx: number;    // center x in attractor space
+  cy: number;    // center y in attractor space
+  radius: number; // influence radius in attractor space
+  weight: number; // pheromone weight (0-1)
+}
+
 const SOMATIC_NEUTRAL: SomaticState = { hueShift: 0, turbulence: 1, driftSpeed: 1 };
 
 const smoothLerp = (start: number, end: number, t: number): number => {
@@ -213,6 +221,10 @@ export const CliffordField: React.FC = () => {
   // Subscribe to pheromone substrate
   const dominantPheromone = useQuery(api.pheromones.getDominantVisual);
   const somaticPheromones = useQuery(api.pheromones.getActiveSomatic);
+  const activeVisual = useQuery(api.pheromones.getActiveVisual);
+
+  // Content crystallization zones — extracted from non-ambient pheromones
+  const contentZonesRef = useRef<ContentZone[]>([]);
 
   useEffect(() => {
     if (dominantPheromone && dominantPheromone.intent in ATTRACTOR_STATES) {
@@ -250,6 +262,33 @@ export const CliffordField: React.FC = () => {
       driftSpeed: maxDrift,
     };
   }, [somaticPheromones]);
+
+  // Extract content zones from non-ambient visual pheromones
+  useEffect(() => {
+    if (!activeVisual || activeVisual.length === 0) {
+      contentZonesRef.current = [];
+      return;
+    }
+
+    const zones: ContentZone[] = [];
+    for (const p of activeVisual) {
+      const content = p.content as { type: string } | undefined;
+      if (!content || content.type === 'ambient') continue;
+
+      // Map pheromone position to attractor space
+      const size = p.size ?? { width: 0.5, height: 0.5 };
+      const radius = Math.max(size.width, size.height) * 1.5;
+
+      zones.push({
+        cx: p.position?.x ?? 0,
+        cy: p.position?.y ?? 0,
+        radius: Math.max(0.3, radius),
+        weight: p.weight ?? 0.5,
+      });
+    }
+
+    contentZonesRef.current = zones;
+  }, [activeVisual]);
 
   const interpolateParams = useCallback(() => {
     if (lerpProgressRef.current < 1) {
@@ -334,8 +373,29 @@ export const CliffordField: React.FC = () => {
         const nx = Math.sin(p.a * y) + p.c * Math.cos(p.a * x);
         const ny = Math.sin(p.b * x) + p.d * Math.cos(p.b * y);
 
-        particles[i * 2] = x + (nx - x) * mixRate * turbScale;
-        particles[i * 2 + 1] = y + (ny - y) * mixRate * turbScale;
+        // Content zone crystallization: slow particles near content regions
+        let localMix = mixRate * turbScale;
+        const zones = contentZonesRef.current;
+        for (let z = 0; z < zones.length; z++) {
+          const zone = zones[z]!;
+          const dx = x - zone.cx;
+          const dy = y - zone.cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < zone.radius) {
+            const influence = (1 - dist / zone.radius) * zone.weight;
+            // Slow particle movement in zone (up to 85% slower)
+            localMix *= (1 - influence * 0.85);
+            // Grid snap bias — particles drift toward regular lattice
+            const gridSize = 0.12;
+            const snapX = Math.round(x / gridSize) * gridSize;
+            const snapY = Math.round(y / gridSize) * gridSize;
+            particles[i * 2] += (snapX - x) * influence * 0.015;
+            particles[i * 2 + 1] += (snapY - y) * influence * 0.015;
+          }
+        }
+
+        particles[i * 2] = x + (nx - x) * localMix;
+        particles[i * 2 + 1] = y + (ny - y) * localMix;
 
         const sx = (particles[i * 2]! * 0.33 + 1) * 0.5 * w;
         const sy = (1 - (particles[i * 2 + 1]! * 0.33 + 1) * 0.5) * h;
