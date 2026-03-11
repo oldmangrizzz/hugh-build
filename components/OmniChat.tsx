@@ -4,14 +4,103 @@
  * Text + voice input, streaming LFM inference responses,
  * conversation history, TTS output, and think-tag stripping.
  *
- * @version 2.2 — Production Specification
+ * Voice: Web Speech API (SpeechRecognition) for browser-native STT.
+ * Fallback: WAV encoding → hughAudioService for LFM inference.
+ *
+ * @version 3.0 — Voice-First STT Integration
  * @classification Production Ready
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
-import { HUGH_SYSTEM_PROMPT } from "../services/hughIdentity";
+import { HUGH_SYSTEM_PROMPT, buildEnrichedPrompt } from "../services/hughIdentity";
+import { processAudioStream } from "../services/hughAudioService";
+
+// Web Speech API types (not in standard TS lib)
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+type SpeechRecognitionInstance = EventTarget & {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: Event & { error: string }) => void) | null;
+  onend: (() => void) | null;
+};
+
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
+  }
+}
+
+/** Encode Float32Array PCM chunks → 16-bit WAV Blob */
+function encodeWAV(chunks: Float32Array[], sampleRate: number): Blob {
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+  const pcm16 = new Int16Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i++) {
+      const s = Math.max(-1, Math.min(1, chunk[i]!));
+      pcm16[offset++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+  }
+
+  const dataLength = pcm16.length * 2;
+  const buffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(buffer);
+
+  // WAV header
+  const writeString = (off: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);           // chunk size
+  view.setUint16(20, 1, true);            // PCM format
+  view.setUint16(22, 1, true);            // mono
+  view.setUint32(24, sampleRate, true);   // sample rate
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true);            // block align
+  view.setUint16(34, 16, true);           // bits per sample
+  writeString(36, 'data');
+  view.setUint32(40, dataLength, true);
+
+  // PCM data
+  const dataView = new Int16Array(buffer, 44);
+  dataView.set(pcm16);
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -67,6 +156,9 @@ export const OmniChat: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
 
+  // Query core identity knowledge from Convex substrate
+  const coreIdentity = useQuery(api.pheromones.getCoreIdentity);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const streamControllerRef = useRef<AbortController | null>(null);
@@ -76,6 +168,15 @@ export const OmniChat: React.FC = () => {
   const recordingStartRef = useRef<number>(0);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+
+  // Web Speech API refs
+  const speechRecRef = useRef<SpeechRecognitionInstance | null>(null);
+  const transcriptRef = useRef<string>('');
+  const sttAvailableRef = useRef<boolean>(
+    typeof window !== 'undefined' &&
+    !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+  );
 
   // Load voices (Safari needs this)
   useEffect(() => {
@@ -84,6 +185,11 @@ export const OmniChat: React.FC = () => {
       window.speechSynthesis.getVoices();
     });
   }, []);
+
+  // Keep messagesRef in sync for stable callbacks
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -107,7 +213,9 @@ export const OmniChat: React.FC = () => {
       timestamp: Date.now(),
     };
 
-    const updatedMessages = [...messages, userMsg];
+    // Use ref to get current messages — avoids stale closure
+    const currentMessages = messagesRef.current;
+    const updatedMessages = [...currentMessages, userMsg];
     setMessages(updatedMessages);
     setInput('');
     setIsStreaming(true);
@@ -127,6 +235,11 @@ export const OmniChat: React.FC = () => {
       content: m.content,
     }));
 
+    // Build enriched system prompt from Convex knowledge base
+    const systemPrompt = coreIdentity && coreIdentity.length > 0
+      ? buildEnrichedPrompt(coreIdentity)
+      : HUGH_SYSTEM_PROMPT;
+
     streamControllerRef.current = new AbortController();
 
     try {
@@ -140,7 +253,7 @@ export const OmniChat: React.FC = () => {
         body: JSON.stringify({
           model: 'DavidAU/LFM2.5-1.2B-Thinking-Claude-4.6-Opus-Heretic-Uncensored-DISTILL',
           messages: [
-            { role: 'system', content: HUGH_SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             ...history,
           ],
           stream: true,
@@ -229,7 +342,7 @@ export const OmniChat: React.FC = () => {
     }
 
     setIsStreaming(false);
-  }, [isStreaming, messages, ttsEnabled]);
+  }, [isStreaming, ttsEnabled, coreIdentity]);
 
   const cancelStream = useCallback(() => {
     streamControllerRef.current?.abort();
@@ -267,6 +380,7 @@ export const OmniChat: React.FC = () => {
 
     audioChunksRef.current = [];
     recordingStartRef.current = Date.now();
+    transcriptRef.current = '';
 
     const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
     const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
@@ -278,6 +392,54 @@ export const OmniChat: React.FC = () => {
     sourceRef.current = source;
     processorRef.current = processor;
 
+    // Start Web Speech API recognition in parallel
+    if (sttAvailableRef.current) {
+      try {
+        const SpeechRecAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecAPI) {
+          const recognition = new SpeechRecAPI();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+          recognition.maxAlternatives = 1;
+
+          recognition.onresult = (event: SpeechRecognitionEvent) => {
+            let interim = '';
+            let final = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const result = event.results[i]!;
+              if (result.isFinal) {
+                final += result[0]!.transcript;
+              } else {
+                interim += result[0]!.transcript;
+              }
+            }
+            if (final) {
+              transcriptRef.current += final;
+            }
+            // Show interim results in input field
+            setInput(transcriptRef.current + interim);
+          };
+
+          recognition.onerror = (event: Event & { error: string }) => {
+            if (event.error !== 'aborted') {
+              console.warn('[OmniChat STT] Recognition error:', event.error);
+            }
+          };
+
+          recognition.onend = () => {
+            // Recognition can auto-stop; don't restart if user stopped recording
+          };
+
+          recognition.start();
+          speechRecRef.current = recognition;
+        }
+      } catch (e) {
+        console.warn('[OmniChat STT] Failed to start recognition:', e);
+        sttAvailableRef.current = false;
+      }
+    }
+
     setIsRecording(true);
   }, [initAudio, isRecording, isStreaming]);
 
@@ -285,17 +447,54 @@ export const OmniChat: React.FC = () => {
     if (!isRecording) return;
     setIsRecording(false);
 
+    // Stop audio nodes
     try {
       processorRef.current?.disconnect();
       sourceRef.current?.disconnect();
     } catch {}
 
-    if (Date.now() - recordingStartRef.current < 500) return;
+    // Stop speech recognition
+    try {
+      speechRecRef.current?.stop();
+    } catch {}
+    speechRecRef.current = null;
+
+    // Ignore very short presses (< 500ms)
+    if (Date.now() - recordingStartRef.current < 500) {
+      setInput('');
+      return;
+    }
 
     const totalLength = audioChunksRef.current.reduce((acc, c) => acc + c.length, 0);
-    if (totalLength === 0) return;
+    if (totalLength === 0) {
+      setInput('');
+      return;
+    }
 
-    sendMessage('[Voice captured — STT pending LFM audio endpoint]');
+    // Path 1: Web Speech API transcript available
+    const transcript = transcriptRef.current.trim();
+    if (transcript) {
+      setInput('');
+      sendMessage(transcript);
+
+      // Also emit audio pheromone via service (fire-and-forget)
+      try {
+        const audioBlob = encodeWAV(audioChunksRef.current, 16000);
+        processAudioStream(audioBlob, 'workshop-browser:operator').catch(() => {});
+      } catch {}
+      return;
+    }
+
+    // Path 2: No Web Speech API — fall back to LFM audio endpoint
+    setInput('');
+    try {
+      const audioBlob = encodeWAV(audioChunksRef.current, 16000);
+      sendMessage('[Transcribing via LFM audio...]');
+      await processAudioStream(audioBlob, 'workshop-browser:operator');
+    } catch (err) {
+      console.warn('[OmniChat STT] LFM audio fallback failed:', err);
+      sendMessage('[Voice captured — transcription unavailable. Try typing instead.]');
+    }
   }, [isRecording, sendMessage]);
 
   // Spacebar handler (only when input not focused)
@@ -503,7 +702,7 @@ export const OmniChat: React.FC = () => {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isRecording ? "Recording..." : "Talk to Hugh..."}
+          placeholder={isRecording ? (sttAvailableRef.current ? "Listening..." : "Recording...") : "Talk to Hugh..."}
           disabled={isRecording}
           style={{
             flex: 1,
@@ -546,7 +745,7 @@ export const OmniChat: React.FC = () => {
         textAlign: 'center',
         letterSpacing: '0.08em',
       }}>
-        HOLD SPACE TO SPEAK • ENTER TO SEND
+        HOLD SPACE TO SPEAK • ENTER TO SEND • VOICE TRANSCRIPTION {sttAvailableRef.current ? 'ON' : 'OFF'}
       </div>
     </div>
   );
