@@ -46,3 +46,7 @@ mcp_agent.secrets.yaml
 *.wav
 voice_raw/*.wav
 __pycache__/
+
+# Voice reference audio (large binaries)
+voice_raw/*.mp3
+voice_raw/*.wav
