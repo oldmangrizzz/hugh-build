@@ -53,8 +53,14 @@ AUTHORIZED_UNITS="sshd|nginx|docker|containerd|fail2ban|auditd|ufw|hugh-runtime|
 # ════════════════════════════════════════
 scan_processes() {
     # Find processes using >80% CPU
-    ps aux --no-headers | awk '$3 > 80 {print $2, $3, $11}' | while read PID CPU CMD; do
+    # Exclude our own PID, ps, awk, and grep to prevent self-targeting false positives
+    SELF_PID=$$
+    ps aux --no-headers | awk -v selfpid="$SELF_PID" '$2 != selfpid && $3 > 80 {print $2, $3, $11}' | while read PID CPU CMD; do
         BASENAME=$(basename "$CMD" 2>/dev/null || echo "$CMD")
+        # Skip sentinel's own child processes (ps, awk, grep, bash, sentinel itself)
+        if echo "$BASENAME" | grep -qE "^(ps|awk|grep|bash|hugh-sentinel)$"; then
+            continue
+        fi
         if ! echo "$BASENAME" | grep -qE "$AUTHORIZED_PROCS"; then
             alert "CRITICAL" "process" "Unauthorized high-CPU process: PID=$PID CPU=${CPU}% CMD=$CMD"
             # Self-heal: terminate it

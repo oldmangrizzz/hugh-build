@@ -554,15 +554,114 @@ export const OmniChat: React.FC = () => {
       return;
     }
 
-    // Path 2: No Web Speech API — send raw audio through the chain
+    // Path 2: No Web Speech API — send raw audio through the full daisy chain
+    // LFM Audio S2S handles transcription server-side
     setInput('');
+    setIsStreaming(true);
+    setChainStage('transcribing');
+
+    const repl2 = replSessionRef.current;
+    const systemPrompt2 = coreIdentity && coreIdentity.length > 0
+      ? buildEnrichedPrompt(coreIdentity)
+      : HUGH_COMPACT_PROMPT;
+    const ctx2 = repl2.getContext(systemPrompt2);
+
+    const userMsg2: ChatMessage = {
+      role: 'user',
+      content: '[Voice input — transcribing...]',
+      timestamp: Date.now(),
+    };
+    setMessages(prev => [...prev, userMsg2]);
+
+    const assistantMsg2: ChatMessage = {
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      isStreaming: true,
+    };
+    setMessages(prev => [...prev, assistantMsg2]);
+
     try {
       const audioBlob = encodeWAV(audioChunksRef.current, 16000);
-      sendMessage('[Transcribing via LFM audio...]');
-    } catch (err) {
-      console.warn('[OmniChat] Voice capture failed:', err);
-      sendMessage('[Voice captured — transcription unavailable. Try typing instead.]');
+
+      setChainStage('thinking');
+      const result = await runFullChain({
+        audioBlob,
+        systemPrompt: systemPrompt2,
+        history: ctx2.messages,
+        onThinkingToken: (_token, fullText) => {
+          const display = cleanResponse(fullText);
+          setMessages(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, content: display };
+            }
+            return updated;
+          });
+        },
+      });
+
+      // Update user message with actual transcription from LFM Audio
+      if (result.transcription.text) {
+        repl2.addMessage('user', result.transcription.text);
+        setMessages(prev => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i]?.role === 'user' && updated[i]?.content === '[Voice input — transcribing...]') {
+              updated[i] = { ...updated[i]!, content: result.transcription.text };
+              break;
+            }
+          }
+          return updated;
+        });
+      }
+
+      const finalContent2 = result.thinking.text;
+      const veto2 = repl2.checkResponse(finalContent2);
+      const displayContent2 = veto2
+        ? `[SUPEREGO VETO] ${veto2}\n\nOriginal response suppressed.`
+        : finalContent2;
+
+      repl2.addMessage('assistant', displayContent2);
+
+      setMessages(prev => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last?.role === 'assistant') {
+          updated[updated.length - 1] = {
+            ...last,
+            isStreaming: false,
+            content: displayContent2,
+          };
+        }
+        return updated;
+      });
+
+      if (ttsEnabled && !veto2) {
+        setChainStage('speaking');
+        playAudio(result.synthesis, displayContent2);
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.warn('[OmniChat] Voice chain failed:', err);
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              isStreaming: false,
+              content: `Voice chain error: ${err?.message}. Try typing instead.`,
+            };
+          }
+          return updated;
+        });
+      }
     }
+
+    setIsStreaming(false);
+    setChainStage('idle');
   }, [isRecording, sendMessage, ttsEnabled, coreIdentity]);
 
   // Spacebar handler (only when input not focused)

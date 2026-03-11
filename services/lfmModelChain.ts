@@ -276,8 +276,9 @@ async function tryLFMAudioTTS(
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        text,
-        voice: 'us_male',  // Built-in preset until custom LoRA voice is trained
+        input: text,           // OpenAI-compatible TTS API expects 'input', not 'text'
+        model: 'lfm-2.5-audio',
+        voice: 'us_male',     // Built-in preset until custom LoRA voice is trained
       }),
       signal,
     }, LFM_AUDIO_TIMEOUT_MS);

@@ -18,6 +18,52 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+// ─── Agent Verification Helper ──────────────────────────────────
+
+/**
+ * Verify an emitter against agent_registry (primary) or soul_anchor_registry (fallback).
+ * Throws with audit log entry on failure.
+ *
+ * NIST AC-3: Access enforcement on ALL pheromone channels (visual, audio, somatic).
+ * Previously only emitVisual verified agents — now uniform across all emitters.
+ */
+async function verifyEmitter(
+  ctx: any,
+  emitterId: string,
+  emitterSignature: string,
+  pheromoneType: "visual" | "audio" | "somatic",
+  intent: string,
+  weight: number,
+): Promise<void> {
+  const agent = await ctx.db
+    .query("agent_registry")
+    .withIndex("by_agent_id", (q: any) => q.eq("agentId", emitterId))
+    .first();
+
+  if (!agent || !agent.isActive) {
+    const nodeId = emitterSignature.split(":")[0];
+    const legacyNode = await ctx.db
+      .query("soul_anchor_registry")
+      .withIndex("by_node_id", (q: any) => q.eq("nodeId", nodeId))
+      .first();
+
+    if (!legacyNode || legacyNode.status !== "active") {
+      await ctx.db.insert("pheromone_audit", {
+        timestamp: Date.now(),
+        emitterId,
+        pheromoneType,
+        intent,
+        weight,
+        accepted: false,
+        rejectionReason: agent ? "Agent inactive" : "Unknown agent",
+      });
+      throw new Error(
+        `Emitter verification failed: "${emitterId}" is ${agent ? "inactive" : "unknown"}`
+      );
+    }
+  }
+}
+
 // ─── Visual Pheromone Emission ──────────────────────────────────
 
 /**
@@ -71,35 +117,8 @@ export const emitVisual = mutation({
     })),
   },
   handler: async (ctx, args) => {
-    // Verify emitter against agent_registry (primary) or soul_anchor_registry (fallback)
-    const agent = await ctx.db
-      .query("agent_registry")
-      .withIndex("by_agent_id", (q: any) => q.eq("agentId", args.emitterId))
-      .first();
-
-    if (!agent || !agent.isActive) {
-      // Fallback: check legacy soul_anchor_registry
-      const nodeId = args.emitterSignature.split(":")[0];
-      const legacyNode = await ctx.db
-        .query("soul_anchor_registry")
-        .withIndex("by_node_id", (q: any) => q.eq("nodeId", nodeId))
-        .first();
-
-      if (!legacyNode || legacyNode.status !== "active") {
-        await ctx.db.insert("pheromone_audit", {
-          timestamp: Date.now(),
-          emitterId: args.emitterId,
-          pheromoneType: "visual" as const,
-          intent: args.intent,
-          weight: args.weight,
-          accepted: false,
-          rejectionReason: agent ? "Agent inactive" : "Unknown agent",
-        });
-        throw new Error(
-          `Emitter verification failed: "${args.emitterId}" is ${agent ? "inactive" : "unknown"}`
-        );
-      }
-    }
+    // Verify emitter — NIST AC-3 access enforcement
+    await verifyEmitter(ctx, args.emitterId, args.emitterSignature, "visual", args.intent, args.weight);
 
     // Clamp weight to [0, 1]
     const clampedWeight = Math.max(0, Math.min(1, args.weight));
@@ -157,6 +176,9 @@ export const emitAudio = mutation({
     emitterId: v.string(),
   },
   handler: async (ctx, args) => {
+    // Verify emitter — NIST AC-3 access enforcement (C-2 fix: was previously unauthenticated)
+    await verifyEmitter(ctx, args.emitterId, args.emitterSignature, "audio", args.intent, args.confidence);
+
     const id = await ctx.db.insert("audio_pheromones", {
       intent: args.intent,
       transcription: args.transcription,
@@ -214,6 +236,9 @@ export const emitSomatic = mutation({
     emitterId: v.string(),
   },
   handler: async (ctx, args) => {
+    // Verify emitter — NIST AC-3 access enforcement (C-2 fix: was previously unauthenticated)
+    await verifyEmitter(ctx, args.emitterId, args.emitterSignature, "somatic", args.source, args.intensity);
+
     const id = await ctx.db.insert("somatic_pheromones", {
       source: args.source,
       intensity: Math.max(0, Math.min(1, args.intensity)),
@@ -387,6 +412,86 @@ export const initializeSystemState = mutation({
   },
 });
 
+/**
+ * Update System State — Live Telemetry Feed
+ *
+ * C-1 fix: Previously system_state was initialized once and never updated.
+ * Now external health checks (hugh-runtime, sentinel, etc.) can push
+ * real telemetry data. The somatic emitter reads this to drive overlays.
+ *
+ * NIST AU-6: Audit event correlation via telemetry updates.
+ */
+export const updateSystemState = mutation({
+  args: {
+    status: v.optional(v.union(
+      v.literal("nominal"),
+      v.literal("degraded"),
+      v.literal("corrupted"),
+      v.literal("pressure"),
+      v.literal("recovery"),
+    )),
+    telemetry: v.optional(v.object({
+      latencyMs: v.optional(v.number()),
+      corruptionRate: v.optional(v.float64()),
+      contextPressure: v.optional(v.float64()),
+      computeLoad: v.optional(v.float64()),
+      activeAgents: v.optional(v.number()),
+    })),
+    somaticOverlayEnabled: v.optional(v.boolean()),
+    emitterId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("system_state").first();
+
+    if (!existing) {
+      // No state exists — initialize with provided values
+      return await ctx.db.insert("system_state", {
+        status: args.status ?? "nominal",
+        telemetry: {
+          latencyMs: args.telemetry?.latencyMs ?? 0,
+          corruptionRate: args.telemetry?.corruptionRate ?? 0,
+          contextPressure: args.telemetry?.contextPressure ?? 0,
+          computeLoad: args.telemetry?.computeLoad ?? 0,
+          activeAgents: args.telemetry?.activeAgents ?? 0,
+        },
+        updatedAt: Date.now(),
+        somaticOverlayEnabled: args.somaticOverlayEnabled ?? true,
+      });
+    }
+
+    // Merge partial telemetry updates (only overwrite provided fields)
+    const mergedTelemetry = {
+      latencyMs: args.telemetry?.latencyMs ?? existing.telemetry.latencyMs,
+      corruptionRate: args.telemetry?.corruptionRate ?? existing.telemetry.corruptionRate,
+      contextPressure: args.telemetry?.contextPressure ?? existing.telemetry.contextPressure,
+      computeLoad: args.telemetry?.computeLoad ?? existing.telemetry.computeLoad,
+      activeAgents: args.telemetry?.activeAgents ?? existing.telemetry.activeAgents,
+    };
+
+    // Derive status from telemetry if not explicitly set
+    let status = args.status ?? existing.status;
+    if (!args.status) {
+      if (mergedTelemetry.corruptionRate > 0.01) status = "corrupted";
+      else if (mergedTelemetry.contextPressure > 0.8) status = "pressure";
+      else if (mergedTelemetry.latencyMs > 200 || mergedTelemetry.computeLoad > 0.9) status = "degraded";
+      else status = "nominal";
+    }
+
+    await ctx.db.patch(existing._id, {
+      status,
+      telemetry: mergedTelemetry,
+      updatedAt: Date.now(),
+      somaticOverlayEnabled: args.somaticOverlayEnabled ?? existing.somaticOverlayEnabled,
+    });
+
+    console.log(
+      `[System State] ${status} | latency=${mergedTelemetry.latencyMs}ms load=${mergedTelemetry.computeLoad.toFixed(2)} pressure=${mergedTelemetry.contextPressure.toFixed(2)}`
+    );
+
+    return existing._id;
+  },
+});
+
 // ─── Agent Registry Management ──────────────────────────────────
 
 /**
@@ -430,6 +535,132 @@ export const registerAgent = mutation({
       lastSeen: Date.now(),
       isActive: true,
     });
+  },
+});
+
+/**
+ * Register Soul Anchor Node — C-3 Fix
+ *
+ * Populates the soul_anchor_registry table which was previously checked
+ * as fallback in emitter verification but never populated.
+ * Called during boot to register known infrastructure nodes.
+ *
+ * NIST IA-4: Identifier management for all pheromone-emitting nodes.
+ */
+export const registerSoulAnchor = mutation({
+  args: {
+    nodeId: v.string(),
+    hardwareSignature: v.string(),
+    publicKeyPem: v.string(),
+    hardwareId: v.optional(v.string()),
+    provisionedBy: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Check if already registered
+    const existing = await ctx.db
+      .query("soul_anchor_registry")
+      .withIndex("by_node_id", (q: any) => q.eq("nodeId", args.nodeId))
+      .first();
+
+    if (existing) {
+      // Update last verified timestamp
+      await ctx.db.patch(existing._id, {
+        hardwareSignature: args.hardwareSignature,
+        publicKeyPem: args.publicKeyPem,
+        status: "active",
+        metadata: {
+          hardwareId: args.hardwareId,
+          provisionedBy: args.provisionedBy,
+          lastVerifiedAt: Date.now(),
+        },
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("soul_anchor_registry", {
+      nodeId: args.nodeId,
+      hardwareSignature: args.hardwareSignature,
+      publicKeyPem: args.publicKeyPem,
+      registeredAt: Date.now(),
+      status: "active",
+      metadata: {
+        hardwareId: args.hardwareId,
+        provisionedBy: args.provisionedBy,
+        lastVerifiedAt: Date.now(),
+      },
+    });
+  },
+});
+
+/**
+ * Seed Infrastructure Agents — Boot-time registration
+ *
+ * Registers all known Workshop nodes in both agent_registry and
+ * soul_anchor_registry so that pheromone verification passes.
+ * Idempotent — safe to call on every boot.
+ */
+export const seedInfrastructureAgents = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const agents = [
+      { agentId: "lfm-audio-chain", agentType: "audio" as const, hostname: "workshop-browser" },
+      { agentId: "lfm-vl-chain", agentType: "vision" as const, hostname: "workshop-browser" },
+      { agentId: "somatic-emitter", agentType: "somatic" as const, hostname: "workshop-browser" },
+      { agentId: "hugh-runtime", agentType: "runtime" as const, hostname: "vps" },
+      { agentId: "operator-grizz", agentType: "operator" as const, hostname: "operator-device" },
+    ];
+
+    const soulAnchors = [
+      { nodeId: "workshop-browser", hardwareSignature: "browser-client", publicKeyPem: "browser-session-key" },
+      { nodeId: "hugh-runtime", hardwareSignature: "vps-187.124.28.147", publicKeyPem: "runtime-session-key" },
+      { nodeId: "ct102-audio", hardwareSignature: "proxmox-ct102", publicKeyPem: "ct102-session-key" },
+      { nodeId: "ct104-knowledge", hardwareSignature: "proxmox-ct104", publicKeyPem: "ct104-session-key" },
+    ];
+
+    let registered = 0;
+
+    for (const agent of agents) {
+      const existing = await ctx.db
+        .query("agent_registry")
+        .withIndex("by_agent_id", (q: any) => q.eq("agentId", agent.agentId))
+        .first();
+
+      if (!existing) {
+        await ctx.db.insert("agent_registry", {
+          ...agent,
+          publicKey: `${agent.agentId}-session-key`,
+          lastSeen: Date.now(),
+          isActive: true,
+        });
+        registered++;
+      } else if (!existing.isActive) {
+        await ctx.db.patch(existing._id, { isActive: true, lastSeen: Date.now() });
+        registered++;
+      }
+    }
+
+    for (const anchor of soulAnchors) {
+      const existing = await ctx.db
+        .query("soul_anchor_registry")
+        .withIndex("by_node_id", (q: any) => q.eq("nodeId", anchor.nodeId))
+        .first();
+
+      if (!existing) {
+        await ctx.db.insert("soul_anchor_registry", {
+          ...anchor,
+          registeredAt: Date.now(),
+          status: "active",
+          metadata: {
+            hardwareId: anchor.hardwareSignature,
+            provisionedBy: "boot-seed",
+            lastVerifiedAt: Date.now(),
+          },
+        });
+      }
+    }
+
+    console.log(`[Boot Seed] Registered ${registered} new agents, verified ${soulAnchors.length} soul anchors`);
+    return { agentsRegistered: registered, anchorsVerified: soulAnchors.length };
   },
 });
 

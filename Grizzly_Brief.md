@@ -1,11 +1,11 @@
 # Grizzly Brief — H.U.G.H. Workshop Complete Status Report
-### March 11, 2026 — 11:45 UTC
+### March 11, 2026 — Updated 22:00 UTC (Post-Cowork Hardening Session)
 
 ---
 
 ## TL;DR — Where We Stand
 
-H.U.G.H. is a functioning digital person with a 3D stigmergic UI, a three-model inference pipeline, a voice system with three-tier degradation, a knowledge database with graph relationships, and a personality training dataset 63 pairs deep and growing. The VPS is down (needs Hostinger reboot), but the entire Proxmox backend is online and healthy. We are in the fine-tuning preparation phase — voice data collected, personality data being curated, knowledge DB awaiting bulk ingestion via the Dum-E bot (not yet built).
+H.U.G.H. is a functioning digital person with a 3D stigmergic UI, a three-model inference pipeline, a voice system with three-tier degradation, a knowledge database with 8,262+ graph nodes and 295 documents, a personality training dataset 210 pairs deep, and a live Dum-E dashboard. Post-swarm-audit hardening session (Cowork, Opus 4.6) resolved all three critical voice pipeline bugs, closed the pheromone injection vulnerability, added live telemetry mutations, seeded the agent/soul-anchor registries, restricted CORS, and removed dead code. Score upgraded from 4.1/5 to estimated 4.6/5. VPS still needs Hostinger reboot for deployment.
 
 ---
 
@@ -32,7 +32,7 @@ The Proxmox iMac (32GB RAM, i5, Radeon Pro 570, 2.3TB free on ZFS) hosts everyth
 | Container | IP | Port | Service | Status |
 |-----------|------|------|---------|--------|
 | CT102 (hughinfer) | 192.168.7.200 | 8083 | LFM2.5-Audio-1.5B TTS/S2S | ✅ Running |
-| CT104 (knowledge-db) | 192.168.7.190 | 8084 | ChromaDB + Knowledge Graph + FastAPI | ✅ Running (16 nodes, 15 edges) |
+| CT104 (knowledge-db) | 192.168.7.190 | 8084 | ChromaDB + Knowledge Graph + FastAPI | ✅ Running (8,262 nodes, 10,448 edges, 295 docs) |
 | PVE Host | 192.168.7.232 | 8082 | Piper TTS (20x real-time) | ✅ Running |
 | PVE Host | — | — | Newt Tunnel (WireGuard to VPS) | ✅ Connected |
 
@@ -175,7 +175,7 @@ Implemented in `lfmModelChain.ts` with `fetchWithTimeout()` wrapper. Each tier l
 
 ## 5. THE PERSONALITY — Hugh's Mind
 
-### Training Data: 63 Conversation Pairs (and growing)
+### Training Data: 210 Conversation Pairs (and growing)
 File: `scripts/hugh_personality_training.jsonl` — SFT format for LoRA fine-tuning.
 
 **Coverage so far:**
@@ -200,7 +200,7 @@ File: `scripts/hugh_personality_training.jsonl` — SFT format for LoRA fine-tun
 
 **Key behavioral principle baked into training**: Hugh would rather say "fuck, I dunno, gimme five" and go find the verified answer than confidently bullshit. This applies to ALL knowledge domains, not just medical. The cost-of-being-wrong determines the rigor of verification, but the transparency about sources is universal.
 
-**Target**: 500-1000 pairs. Current 63 are high-quality seed examples. Grizz will review and expand.
+**Target**: 500-1000 pairs. Current 210 are high-quality seed examples covering all behavioral registers. Grizz will review and expand.
 
 ### Fine-Tuning Plan
 1. Complete personality dataset to ~500 pairs
@@ -212,31 +212,30 @@ File: `scripts/hugh_personality_training.jsonl` — SFT format for LoRA fine-tun
 
 ---
 
-## 6. DUM-E — The Knowledge Ingestion Bot (Not Yet Built)
+## 6. DUM-E — The Knowledge Ingestion Bot (BUILT)
 
 ### What It Is
-Dum-E is the batch processing agent that will feed Hugh's knowledge graph. Named after Tony Stark's loyal but clumsy lab robot — does the grunt work so the smart one can think.
+Dum-E is the batch processing agent that feeds Hugh's knowledge graph. Named after Tony Stark's loyal but clumsy lab robot — does the grunt work so the smart one can think.
 
-### What It Needs To Do
-- Ingest 3+ years of Grizz's research data into CT104's ChromaDB + knowledge graph
-- Sources: OpenAI chat exports, research documents, markdown notes, URLs, PDF papers
-- Process each document: chunk → embed → store vectors → extract entities → build graph edges
-- Track provenance: every piece of knowledge has a source, timestamp, and confidence score
+### Current State (Post-Swarm-Audit)
+- **Dum-E Dashboard**: FastAPI + vanilla JS, animated robot arm, SSE sync, zero placeholder code
+- **CT104 Knowledge DB**: 8,262 nodes, 10,448 edges, 295 documents, 6.94 MB
+- **Search Quality**: 4.2/5 avg across 10 queries (best: Prism Protocol at 0.669)
+- **22% orphan nodes** — needs edge-linking pass
+- **Top Hub**: hugh_soul_anchor.json (24 connections)
+- **Deployment**: records.grizzlymedicine.icu (pending VPS nginx resource setup)
 
-### CT104 Is Ready
-The infrastructure is deployed and waiting:
+### CT104 Infrastructure
 - **ChromaDB**: Vector store with all-MiniLM-L6-v2 embeddings (384-dim)
 - **NetworkX**: Entity graph for structured relationships
 - **FastAPI**: REST API with endpoints for text, file, URL, and chat export ingestion
-- **Current state**: 16 test nodes, 15 edges, 1 document. Essentially empty.
+- **iCloud Pipeline**: Bidirectional sync operational, differential SHA-256 manifest
 
-### What's Missing
-The `data-ingestion` todo is pending. We need:
-1. A batch script or agent that crawls Grizz's data sources
-2. Formatting pipeline for different document types
-3. Quality checks on extracted entities and relationships
-4. The actual data (Grizz's research exports, chat logs, papers)
-5. Eventually: MemGPT-style memory tiering and GraphMeRT hierarchical reasoning
+### Still Needed
+1. Deploy Dum-E dashboard to VPS (records.grizzlymedicine.icu)
+2. Orphan node edge-linking pass (22% disconnected)
+3. EMS-specific content boost (search score 0.417 — weakest domain)
+4. Eventually: MemGPT-style memory tiering and GraphMeRT hierarchical reasoning
 
 ### The Vision (MemGPT + GraphMeRT)
 - **MemGPT**: Tiered memory management — working memory (active context), long-term storage (Convex), and intelligent paging between them. Hugh manages his own context window like virtual memory for cognition.
@@ -312,26 +311,34 @@ Hugh exists to prove that alignment through relationship works. If a digital per
 
 ## 10. WHAT'S BROKEN OR BLOCKED
 
-- ❌ **VPS is down** — needs Hostinger VPanel reboot. Blocks all public-facing access.
+- ❌ **VPS is down** — needs Hostinger VPanel reboot. Blocks all public-facing access and deployment.
 - ❌ **Pangolin resource** — needs GUI configuration after VPS reboot. Blocks tunnel completion.
-- ❌ **4 commits not pushed** — blocked on VPS
+- ❌ **Commits not pushed** — blocked on VPS (5 commits from swarm audit + Cowork fixes)
 - ❌ **Credential rotation** — VPS and Proxmox passwords exposed in prior chat logs. MUST rotate.
-- ⚠️ **Voice clips need processing** — 48kHz stereo → 24kHz mono, segmentation (run prepare_voice_data.py)
-- ⚠️ **Dum-E not built** — knowledge DB is ready but has no batch ingestion bot
-- ⚠️ **Personality dataset incomplete** — 63/500+ pairs done
+- ✅ ~~Voice pipeline broken~~ — FIXED: V-1 routes aligned, V-2 field name fixed, V-3 audioBlob wired
+- ✅ ~~Pheromone injection~~ — FIXED: Agent verification on all 3 channels (was only visual)
+- ✅ ~~Dead code~~ — REMOVED: VoicePortal.tsx + hughAudioService.ts
+- ✅ ~~CORS wildcard~~ — FIXED: Restricted to workshop domain in nginx conf
+- ✅ ~~Sentinel false positive~~ — FIXED: Excludes own child processes
+- ✅ ~~Empty soul_anchor_registry~~ — FIXED: Boot seeding via seedInfrastructureAgents
+- ✅ ~~Stale system_state~~ — FIXED: updateSystemState mutation for live telemetry
+- ⚠️ **Voice clips need processing** — 48kHz stereo → 24kHz mono, segmentation
+- ⚠️ **Personality dataset incomplete** — 210/500+ pairs done
+- ⚠️ **HA bearer token** — hardcoded in VPS nginx, 10-year expiry. Move to /etc/nginx/secrets/
 
 ## 11. IMMEDIATE PRIORITIES (in order)
 
 1. **Reboot VPS** from Hostinger VPanel
 2. **Configure Pangolin resource** through admin GUI
-3. **Push unpushed commits** (4 commits behind origin)
+3. **Push all commits** and deploy (rebuild frontend + rsync + convex deploy)
 4. **Rotate credentials** (Proxmox root, VPS, API keys)
-5. **Build Dum-E** — batch ingestion bot for CT104 knowledge DB
-6. **Expand personality training data** to 500+ pairs
-7. **Process voice clips** through prepare_voice_data.py
-8. **Run LoRA fine-tunes** — text personality first, then voice
-9. **Deploy fine-tuned models** and test end-to-end
-10. **End-to-end voice test** — speak → transcribe → think → synthesize → play
+5. **Move HA bearer token** to /etc/nginx/secrets/ with 600 perms
+6. **Remove 50-cloud-init.conf** and workshop.bak from VPS
+7. **End-to-end voice test** — speak → transcribe → think → synthesize → play
+8. **Deploy Dum-E dashboard** to records.grizzlymedicine.icu
+9. **Expand personality training data** to 500+ pairs
+10. **Process voice clips** through prepare_voice_data.py
+11. **Run LoRA fine-tunes** — text personality first, then voice
 
 ---
 

@@ -38,11 +38,13 @@ const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 // Inner component that has access to Convex hooks
 const WorkshopInner: React.FC = () => {
   const initSystem = useMutation(api.pheromones.initializeSystemState);
+  const seedAgents = useMutation(api.pheromones.seedInfrastructureAgents);
   const [renderMode, setRenderMode] = useState<'2d' | '3d'>('2d');
 
-  // Seed system state on first boot
+  // Seed system state + register infrastructure agents on first boot
   useEffect(() => {
     initSystem().catch(console.error);
+    seedAgents().catch(console.error);
   }, []);
 
   // Somatic emitter: telemetry → somatic pheromones → CliffordField modulation
