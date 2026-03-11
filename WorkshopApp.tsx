@@ -16,16 +16,21 @@
  * @classification Production Ready
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { ConvexProvider, ConvexReactClient, useMutation } from "convex/react";
+import { ErrorBoundary, SilentBoundary } from "./components/ErrorBoundary";
 import { CliffordField } from "./components/CliffordField";
 import { ContentProjection } from "./components/ContentProjection";
 import { MapCanvas } from "./components/MapCanvas";
-import { ImmersiveScene } from "./components/ImmersiveScene";
 import { HOTLDashboard } from "./components/HOTLDashboard";
 import { OmniChat } from "./components/OmniChat";
 import { useSomaticEmitter } from "./services/useSomaticEmitter";
 import { api } from "./convex/_generated/api";
+
+// Lazy-load Three.js scene — only pulled when user enters 3D mode
+const ImmersiveScene = lazy(() =>
+  import("./components/ImmersiveScene").then(m => ({ default: m.ImmersiveScene }))
+);
 
 // Convex client — connected to Pheromone substrate
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
@@ -46,13 +51,25 @@ const WorkshopInner: React.FC = () => {
   return (
     <>
       {/* Spatial base layer — the physical world beneath the particles */}
-      <MapCanvas />
+      <SilentBoundary fallbackLabel="MapCanvas">
+        <MapCanvas />
+      </SilentBoundary>
 
       {/* Hugh's body — particle field (2D attractor or 3D immersive) */}
-      {renderMode === '2d' ? <CliffordField /> : <ImmersiveScene />}
+      <SilentBoundary fallbackLabel="CliffordField">
+        {renderMode === '2d' ? (
+          <CliffordField />
+        ) : (
+          <Suspense fallback={null}>
+            <ImmersiveScene />
+          </Suspense>
+        )}
+      </SilentBoundary>
 
       {/* Content surfaces — crystallized on particle field */}
-      <ContentProjection />
+      <SilentBoundary fallbackLabel="ContentProjection">
+        <ContentProjection />
+      </SilentBoundary>
 
       {/* Identity header */}
       <div style={{
@@ -84,7 +101,9 @@ const WorkshopInner: React.FC = () => {
       </div>
 
       {/* System telemetry badge */}
-      <HOTLDashboard />
+      <SilentBoundary fallbackLabel="HOTLDashboard">
+        <HOTLDashboard />
+      </SilentBoundary>
 
       {/* Render mode toggle */}
       <button
@@ -120,9 +139,11 @@ const WorkshopInner: React.FC = () => {
 
 export const WorkshopApp: React.FC = () => {
   return (
-    <ConvexProvider client={convex}>
-      <WorkshopInner />
-    </ConvexProvider>
+    <ErrorBoundary fallbackLabel="H.U.G.H. Workshop">
+      <ConvexProvider client={convex}>
+        <WorkshopInner />
+      </ConvexProvider>
+    </ErrorBoundary>
   );
 };
 

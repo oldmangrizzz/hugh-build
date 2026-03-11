@@ -41,7 +41,7 @@ export default defineConfig({
           convex: ['convex'],
           vendor: ['react', 'react-dom'],
           mapbox: ['mapbox-gl'],
-          three: ['three', '@react-three/fiber'],
+          // three.js bundled with lazy ImmersiveScene — no eager modulepreload
         },
       },
     },

@@ -14,12 +14,13 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
-import { HUGH_SYSTEM_PROMPT, buildEnrichedPrompt } from "../services/hughIdentity";
+import { HUGH_SYSTEM_PROMPT, HUGH_COMPACT_PROMPT, buildEnrichedPrompt } from "../services/hughIdentity";
 import {
   runTextChain,
   runFullChain,
   playAudio,
   browserTTS,
+  unlockTTS,
   type ChainStage,
   getChainStatusLabel,
 } from "../services/lfmModelChain";
@@ -203,6 +204,9 @@ export const OmniChat: React.FC = () => {
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
 
+    // Unlock TTS on user gesture (Safari requires this before async TTS works)
+    unlockTTS();
+
     const userMsg: ChatMessage = {
       role: 'user',
       content: text.trim(),
@@ -229,9 +233,10 @@ export const OmniChat: React.FC = () => {
     const repl = replSessionRef.current;
     repl.addMessage('user', text.trim());
 
+    // Use compact prompt for small models (sub-3B), full prompt for larger
     const systemPrompt = coreIdentity && coreIdentity.length > 0
       ? buildEnrichedPrompt(coreIdentity)
-      : HUGH_SYSTEM_PROMPT;
+      : HUGH_COMPACT_PROMPT;
 
     const ctx = repl.getContext(systemPrompt);
 
@@ -347,6 +352,8 @@ export const OmniChat: React.FC = () => {
 
   const startRecording = useCallback(async () => {
     if (isRecording || isStreaming) return;
+    // Unlock TTS on user gesture (Safari requires this before async TTS works)
+    unlockTTS();
     const ready = await initAudio();
     if (!ready || !audioContextRef.current || !mediaStreamRef.current) return;
 
@@ -456,7 +463,7 @@ export const OmniChat: React.FC = () => {
 
       const systemPrompt = coreIdentity && coreIdentity.length > 0
         ? buildEnrichedPrompt(coreIdentity)
-        : HUGH_SYSTEM_PROMPT;
+        : HUGH_COMPACT_PROMPT;
 
       const ctx = repl.getContext(systemPrompt);
 

@@ -20,40 +20,71 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+
+// Mapbox GL loaded dynamically to prevent module-level crashes in Safari
+let mapboxgl: any = null;
+let mapboxLoaded = false;
+let mapboxFailed = false;
+
+const loadMapbox = async () => {
+  if (mapboxLoaded || mapboxFailed) return mapboxgl;
+  try {
+    const mod = await import('mapbox-gl');
+    await import('mapbox-gl/dist/mapbox-gl.css');
+    mapboxgl = mod.default;
+    mapboxLoaded = true;
+    return mapboxgl;
+  } catch (err) {
+    console.warn('[MapCanvas] Mapbox GL failed to load:', err);
+    mapboxFailed = true;
+    return null;
+  }
+};
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 
 export const MapCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapRef = useRef<any>(null);
   const spinRef = useRef<number>(0);
   const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(mapboxLoaded);
 
   const activeVisual = useQuery(api.pheromones.getActiveVisual);
 
+  // ─── Load Mapbox GL dynamically ─────────────────────────────
+  useEffect(() => {
+    if (mapboxLoaded) { setReady(true); return; }
+    if (mapboxFailed) return;
+    loadMapbox().then(gl => { if (gl) setReady(true); });
+  }, []);
+
   // ─── Initialize Globe ───────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current || !MAPBOX_TOKEN || mapRef.current) return;
+    if (!containerRef.current || !MAPBOX_TOKEN || !ready || !mapboxgl || mapRef.current) return;
 
-    mapboxgl.accessToken = MAPBOX_TOKEN;
+    let map: any;
+    try {
+      mapboxgl.accessToken = MAPBOX_TOKEN;
 
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
-      projection: 'globe',
-      center: [-98.58, 39.83],   // Geographic center of CONUS
-      zoom: 2.5,
-      pitch: 45,
-      bearing: -17.6,
-      antialias: true,
-      interactive: false,         // Hugh controls navigation via pheromones
-      fadeDuration: 0,
-    });
+      map = new mapboxgl.Map({
+        container: containerRef.current,
+        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        projection: 'globe',
+        center: [-98.58, 39.83],
+        zoom: 2.5,
+        pitch: 45,
+        bearing: -17.6,
+        antialias: true,
+        interactive: false,
+        fadeDuration: 0,
+      });
+    } catch (err) {
+      console.error('[MapCanvas] Mapbox initialization failed:', err);
+      return;
+    }
 
     map.on('style.load', () => {
-      // Atmospheric fog — dark sci-fi globe aesthetic
       map.setFog({
         color: 'rgb(10, 10, 10)',
         'high-color': 'rgb(20, 30, 40)',
@@ -66,7 +97,6 @@ export const MapCanvas: React.FC = () => {
 
     mapRef.current = map;
 
-    // Slow idle globe rotation — the world turns beneath Hugh
     const spin = () => {
       if (mapRef.current && !mapRef.current.isMoving()) {
         const center = mapRef.current.getCenter();
@@ -82,7 +112,7 @@ export const MapCanvas: React.FC = () => {
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [ready]);
 
   // ─── Navigation Pheromone Response ──────────────────────────
   useEffect(() => {

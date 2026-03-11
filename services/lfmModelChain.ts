@@ -418,15 +418,33 @@ export function playAudio(result: SynthesisResult | null, fallbackText?: string)
 }
 
 /**
+ * Unlock browser TTS — MUST be called from a direct user gesture handler
+ * (click, touchend) before any async TTS calls will work on Safari/iOS.
+ */
+let ttsUnlocked = false;
+export function unlockTTS(): void {
+  if (ttsUnlocked || !window.speechSynthesis) return;
+  const silent = new SpeechSynthesisUtterance('');
+  silent.volume = 0;
+  window.speechSynthesis.speak(silent);
+  ttsUnlocked = true;
+}
+
+/**
  * Browser TTS fallback — used when LFM Audio S2S is offline.
  * Tuned to Hugh's voice profile from soul_anchor.yaml:
  *   rate: 0.95, pitch: 0.85 (chest voice), prefer "Daniel"
  */
 export function browserTTS(text: string): void {
   if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
   const cleaned = text.replace(/<[^>]+>/g, '').replace(/\*\*?/g, '');
   if (!cleaned.trim()) return;
+
+  // Safari bug: cancel() before speak() can silently drop the next utterance.
+  // Only cancel if something is actively speaking.
+  if (window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+  }
 
   const utterance = new SpeechSynthesisUtterance(cleaned);
   utterance.rate = 0.95;
