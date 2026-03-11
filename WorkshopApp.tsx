@@ -16,10 +16,12 @@
  * @classification Production Ready
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ConvexProvider, ConvexReactClient, useMutation } from "convex/react";
 import { CliffordField } from "./components/CliffordField";
 import { ContentProjection } from "./components/ContentProjection";
+import { MapCanvas } from "./components/MapCanvas";
+import { ImmersiveScene } from "./components/ImmersiveScene";
 import { HOTLDashboard } from "./components/HOTLDashboard";
 import { OmniChat } from "./components/OmniChat";
 import { useSomaticEmitter } from "./services/useSomaticEmitter";
@@ -31,6 +33,7 @@ const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 // Inner component that has access to Convex hooks
 const WorkshopInner: React.FC = () => {
   const initSystem = useMutation(api.pheromones.initializeSystemState);
+  const [renderMode, setRenderMode] = useState<'2d' | '3d'>('2d');
 
   // Seed system state on first boot
   useEffect(() => {
@@ -42,8 +45,11 @@ const WorkshopInner: React.FC = () => {
 
   return (
     <>
-      {/* Hugh's body — particle field background */}
-      <CliffordField />
+      {/* Spatial base layer — the physical world beneath the particles */}
+      <MapCanvas />
+
+      {/* Hugh's body — particle field (2D attractor or 3D immersive) */}
+      {renderMode === '2d' ? <CliffordField /> : <ImmersiveScene />}
 
       {/* Content surfaces — crystallized on particle field */}
       <ContentProjection />
@@ -79,6 +85,32 @@ const WorkshopInner: React.FC = () => {
 
       {/* System telemetry badge */}
       <HOTLDashboard />
+
+      {/* Render mode toggle */}
+      <button
+        onClick={() => setRenderMode(m => m === '2d' ? '3d' : '2d')}
+        style={{
+          position: 'fixed',
+          bottom: '16px',
+          right: '16px',
+          zIndex: 1001,
+          background: 'rgba(10, 10, 10, 0.85)',
+          backdropFilter: 'blur(12px)',
+          border: '1px solid rgba(78, 205, 196, 0.2)',
+          borderRadius: '8px',
+          padding: '6px 14px',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: '10px',
+          color: '#4ecdc4',
+          cursor: 'pointer',
+          letterSpacing: '0.08em',
+          transition: 'border-color 0.2s ease',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(78, 205, 196, 0.5)')}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(78, 205, 196, 0.2)')}
+      >
+        {renderMode === '2d' ? '◉ ENTER 3D' : '◉ EXIT 3D'}
+      </button>
 
       {/* Primary interaction surface */}
       <OmniChat />

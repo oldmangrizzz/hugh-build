@@ -40,6 +40,8 @@ export default defineConfig({
         manualChunks: {
           convex: ['convex'],
           vendor: ['react', 'react-dom'],
+          mapbox: ['mapbox-gl'],
+          three: ['three', '@react-three/fiber'],
         },
       },
     },

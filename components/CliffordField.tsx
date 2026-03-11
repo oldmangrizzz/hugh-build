@@ -14,7 +14,7 @@
  *   turbulence → movement agitation multiplier
  *   driftSpeed → interpolation rate modifier
  *
- * @version 4.0 — Somatic Field Modulation
+ * @version 5.0 — Multi-Pheromone Blending Algebra
  * @classification Production Ready
  */
 
@@ -47,6 +47,15 @@ interface ContentZone {
   cy: number;    // center y in attractor space
   radius: number; // influence radius in attractor space
   weight: number; // pheromone weight (0-1)
+}
+
+// Spatial pheromone — positioned attractor for per-particle blending
+interface SpatialPheromone {
+  x: number;
+  y: number;
+  radius: number;
+  weight: number;
+  attractor: { a: number; b: number; c: number; d: number };
 }
 
 const SOMATIC_NEUTRAL: SomaticState = { hueShift: 0, turbulence: 1, driftSpeed: 1 };
@@ -219,22 +228,61 @@ export const CliffordField: React.FC = () => {
   const currentSomaticRef = useRef<SomaticState>({ ...SOMATIC_NEUTRAL });
 
   // Subscribe to pheromone substrate
-  const dominantPheromone = useQuery(api.pheromones.getDominantVisual);
   const somaticPheromones = useQuery(api.pheromones.getActiveSomatic);
   const activeVisual = useQuery(api.pheromones.getActiveVisual);
 
+  // Spatial pheromones for per-particle blending (multi-pheromone algebra)
+  const spatialPheromonesRef = useRef<SpatialPheromone[]>([]);
   // Content crystallization zones — extracted from non-ambient pheromones
   const contentZonesRef = useRef<ContentZone[]>([]);
 
+  // Multi-pheromone blending algebra (whitepaper §4.2)
+  // Global: a_blend = Σ(Pi.weight * Pi.a) / Σ(Pi.weight)
+  // Spatial: per-particle blend by proximity in Canvas2D render loop
   useEffect(() => {
-    if (dominantPheromone && dominantPheromone.intent in ATTRACTOR_STATES) {
-      targetParamsRef.current = ATTRACTOR_STATES[dominantPheromone.intent]!;
-      lerpProgressRef.current = 0;
-    } else {
+    if (!activeVisual || activeVisual.length === 0) {
       targetParamsRef.current = ATTRACTOR_STATES.idle;
+      spatialPheromonesRef.current = [];
       lerpProgressRef.current = 0;
+      return;
     }
-  }, [dominantPheromone]);
+
+    let totalWeight = 0;
+    let blendA = 0, blendB = 0, blendC = 0, blendD = 0;
+    const spatials: SpatialPheromone[] = [];
+
+    for (const ph of activeVisual) {
+      const intent = (ph as any).intent as string;
+      const override = (ph as any).attractorOverride as
+        { a: number; b: number; c: number; d: number } | undefined;
+      const att = override ?? ATTRACTOR_STATES[intent] ?? ATTRACTOR_STATES.idle;
+      const w = (ph as any).weight ?? 0.5;
+      const pos = (ph as any).position ?? { x: 0, y: 0 };
+      const sz = (ph as any).size ?? { width: 0.5, height: 0.5 };
+
+      totalWeight += w;
+      blendA += att.a * w;
+      blendB += att.b * w;
+      blendC += att.c * w;
+      blendD += att.d * w;
+
+      spatials.push({
+        x: pos.x,
+        y: pos.y,
+        radius: Math.max(sz.width, sz.height) * 2.5,
+        weight: w,
+        attractor: att,
+      });
+    }
+
+    targetParamsRef.current = totalWeight > 0
+      ? { a: blendA / totalWeight, b: blendB / totalWeight,
+          c: blendC / totalWeight, d: blendD / totalWeight }
+      : ATTRACTOR_STATES.idle;
+
+    spatialPheromonesRef.current = spatials;
+    lerpProgressRef.current = 0;
+  }, [activeVisual]);
 
   // Aggregate somatic pheromones → composite field modulation
   useEffect(() => {
@@ -366,12 +414,43 @@ export const CliffordField: React.FC = () => {
       const mixRate = 0.05 * som.driftSpeed;
       const turbScale = som.turbulence;
 
+      // Spatial pheromone data for per-particle attractor blending
+      const spatials = spatialPheromonesRef.current;
+      const doSpatialBlend = spatials.length > 1;
+
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         const x = particles[i * 2]!;
         const y = particles[i * 2 + 1]!;
 
-        const nx = Math.sin(p.a * y) + p.c * Math.cos(p.a * x);
-        const ny = Math.sin(p.b * x) + p.d * Math.cos(p.b * y);
+        // Per-particle spatial attractor blend when multiple pheromones coexist
+        let la = p.a, lb = p.b, lc = p.c, ld = p.d;
+        if (doSpatialBlend) {
+          let wSum = 0;
+          let wa = 0, wb = 0, wc = 0, wd = 0;
+          for (let s = 0; s < spatials.length; s++) {
+            const sp = spatials[s]!;
+            const dx = x - sp.x;
+            const dy = y - sp.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < sp.radius) {
+              const inf = (1 - dist / sp.radius) * sp.weight;
+              wSum += inf;
+              wa += sp.attractor.a * inf;
+              wb += sp.attractor.b * inf;
+              wc += sp.attractor.c * inf;
+              wd += sp.attractor.d * inf;
+            }
+          }
+          if (wSum > 0.01) {
+            la = wa / wSum;
+            lb = wb / wSum;
+            lc = wc / wSum;
+            ld = wd / wSum;
+          }
+        }
+
+        const nx = Math.sin(la * y) + lc * Math.cos(la * x);
+        const ny = Math.sin(lb * x) + ld * Math.cos(lb * y);
 
         // Content zone crystallization: slow particles near content regions
         let localMix = mixRate * turbScale;
@@ -383,9 +462,7 @@ export const CliffordField: React.FC = () => {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < zone.radius) {
             const influence = (1 - dist / zone.radius) * zone.weight;
-            // Slow particle movement in zone (up to 85% slower)
             localMix *= (1 - influence * 0.85);
-            // Grid snap bias — particles drift toward regular lattice
             const gridSize = 0.12;
             const snapX = Math.round(x / gridSize) * gridSize;
             const snapY = Math.round(y / gridSize) * gridSize;
