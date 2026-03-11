@@ -7,7 +7,7 @@
  * Voice: Web Speech API (SpeechRecognition) for browser-native STT.
  * Fallback: WAV encoding → hughAudioService for LFM inference.
  *
- * @version 3.0 — Voice-First STT Integration
+ * @version 4.0 — LFM Daisy Chain Integration
  * @classification Production Ready
  */
 
@@ -15,7 +15,14 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { HUGH_SYSTEM_PROMPT, buildEnrichedPrompt } from "../services/hughIdentity";
-import { processAudioStream } from "../services/hughAudioService";
+import {
+  runTextChain,
+  runFullChain,
+  playAudio,
+  browserTTS,
+  type ChainStage,
+  getChainStatusLabel,
+} from "../services/lfmModelChain";
 
 // Web Speech API types (not in standard TS lib)
 interface SpeechRecognitionEvent extends Event {
@@ -124,24 +131,7 @@ function cleanResponse(raw: string): string {
   return cleaned;
 }
 
-/** Speak text via Web Speech API (browser TTS) */
-function speak(text: string) {
-  if (!window.speechSynthesis) return;
-  // Cancel any ongoing speech
-  window.speechSynthesis.cancel();
-  const cleaned = text.replace(/<[^>]+>/g, '').replace(/\*\*?/g, '');
-  if (!cleaned.trim()) return;
-  const utterance = new SpeechSynthesisUtterance(cleaned);
-  utterance.rate = 0.95;
-  utterance.pitch = 0.85; // Lower pitch — chest voice
-  // Prefer a male English voice
-  const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('daniel'))
-    || voices.find(v => v.lang.startsWith('en') && !v.name.toLowerCase().includes('female'))
-    || voices[0];
-  if (preferred) utterance.voice = preferred;
-  window.speechSynthesis.speak(utterance);
-}
+/** cleanResponse is still needed for live-streaming display */
 
 export const OmniChat: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -155,6 +145,7 @@ export const OmniChat: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [chainStage, setChainStage] = useState<ChainStage>('idle');
 
   // Query core identity knowledge from Convex substrate
   const coreIdentity = useQuery(api.pheromones.getCoreIdentity);
@@ -202,7 +193,8 @@ export const OmniChat: React.FC = () => {
   }, []);
 
   /**
-   * Send a text message to Hugh via LFM inference
+   * Send a text message to Hugh via LFM Daisy Chain
+   * Text path: Thinking (stream) → Audio S2S (synthesize Hugh's voice)
    */
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
@@ -213,12 +205,12 @@ export const OmniChat: React.FC = () => {
       timestamp: Date.now(),
     };
 
-    // Use ref to get current messages — avoids stale closure
     const currentMessages = messagesRef.current;
     const updatedMessages = [...currentMessages, userMsg];
     setMessages(updatedMessages);
     setInput('');
     setIsStreaming(true);
+    setChainStage('thinking');
 
     // Add streaming placeholder
     const assistantMsg: ChatMessage = {
@@ -229,13 +221,12 @@ export const OmniChat: React.FC = () => {
     };
     setMessages(prev => [...prev, assistantMsg]);
 
-    // Build conversation history (last 10 messages, cleaned)
+    // Build conversation history (last 10 messages)
     const history = updatedMessages.slice(-10).map(m => ({
       role: m.role,
       content: m.content,
     }));
 
-    // Build enriched system prompt from Convex knowledge base
     const systemPrompt = coreIdentity && coreIdentity.length > 0
       ? buildEnrichedPrompt(coreIdentity)
       : HUGH_SYSTEM_PROMPT;
@@ -243,65 +234,28 @@ export const OmniChat: React.FC = () => {
     streamControllerRef.current = new AbortController();
 
     try {
-      const endpoint = import.meta.env.VITE_LFM_THINKING_ENDPOINT || '/api/inference/v1/chat/completions';
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_LFM_API_KEY || 'hugh-local'}`,
+      const result = await runTextChain({
+        text: text.trim(),
+        systemPrompt,
+        history: history.slice(0, -1), // exclude current message (chain adds it)
+        synthesize: ttsEnabled,
+        onThinkingToken: (_token, fullText) => {
+          // Live-update the streaming response (strip think tags)
+          const display = cleanResponse(fullText);
+          setMessages(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, content: display };
+            }
+            return updated;
+          });
         },
-        body: JSON.stringify({
-          model: 'DavidAU/LFM2.5-1.2B-Thinking-Claude-4.6-Opus-Heretic-Uncensored-DISTILL',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...history,
-          ],
-          stream: true,
-          max_tokens: 512,
-          temperature: 0.7,
-        }),
         signal: streamControllerRef.current.signal,
       });
 
-      if (!res.ok) throw new Error(`LFM_OFFLINE:${res.status}`);
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) throw new Error('No response body');
-
-      let fullResponse = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-            try {
-              const data = JSON.parse(line.slice(6));
-              const token = data.choices?.[0]?.delta?.content || data.token || '';
-              if (token) {
-                fullResponse += token;
-                const display = cleanResponse(fullResponse);
-                setMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last?.role === 'assistant') {
-                    updated[updated.length - 1] = { ...last, content: display };
-                  }
-                  return updated;
-                });
-              }
-            } catch { /* malformed chunk, skip */ }
-          }
-        }
-      }
-
       // Finalize
-      const finalContent = cleanResponse(fullResponse) || 'Copy that.';
+      const finalContent = result.thinking.text;
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
@@ -315,15 +269,18 @@ export const OmniChat: React.FC = () => {
         return updated;
       });
 
-      // TTS — speak the response
-      if (ttsEnabled) speak(finalContent);
+      // Play Hugh's voice: LFM Audio S2S → fallback to browser TTS
+      if (ttsEnabled) {
+        setChainStage('speaking');
+        playAudio(result.synthesis, finalContent);
+      }
 
     } catch (error: any) {
       if (error?.name === 'AbortError') return;
 
       const isOffline = error?.message?.includes('Failed to fetch') ||
                         error?.message?.includes('NetworkError') ||
-                        error?.message?.includes('LFM_OFFLINE');
+                        error?.message?.includes('LFM_THINKING_OFFLINE');
 
       setMessages(prev => {
         const updated = [...prev];
@@ -342,6 +299,7 @@ export const OmniChat: React.FC = () => {
     }
 
     setIsStreaming(false);
+    setChainStage('idle');
   }, [isStreaming, ttsEnabled, coreIdentity]);
 
   const cancelStream = useCallback(() => {
@@ -471,31 +429,111 @@ export const OmniChat: React.FC = () => {
       return;
     }
 
-    // Path 1: Web Speech API transcript available
+    // Path 1: Web Speech API transcript available — use full chain
     const transcript = transcriptRef.current.trim();
     if (transcript) {
       setInput('');
-      sendMessage(transcript);
+      setIsStreaming(true);
+      setChainStage('transcribing');
 
-      // Also emit audio pheromone via service (fire-and-forget)
+      // Build history + system prompt
+      const currentMessages = messagesRef.current;
+      const history = currentMessages.slice(-10).map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
+      const systemPrompt = coreIdentity && coreIdentity.length > 0
+        ? buildEnrichedPrompt(coreIdentity)
+        : HUGH_SYSTEM_PROMPT;
+
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content: transcript,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, userMsg]);
+
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+        isStreaming: true,
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+
       try {
         const audioBlob = encodeWAV(audioChunksRef.current, 16000);
-        processAudioStream(audioBlob, 'workshop-browser:operator').catch(() => {});
-      } catch {}
+
+        setChainStage('thinking');
+        const result = await runFullChain({
+          audioBlob,
+          systemPrompt,
+          history,
+          browserTranscript: transcript,
+          onThinkingToken: (_token, fullText) => {
+            const display = cleanResponse(fullText);
+            setMessages(prev => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last?.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, content: display };
+              }
+              return updated;
+            });
+          },
+        });
+
+        const finalContent = result.thinking.text;
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              isStreaming: false,
+              content: finalContent,
+            };
+          }
+          return updated;
+        });
+
+        // Play Hugh's voice via LFM Audio S2S → browser TTS fallback
+        if (ttsEnabled) {
+          setChainStage('speaking');
+          playAudio(result.synthesis, finalContent);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          setMessages(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = {
+                ...last,
+                isStreaming: false,
+                content: `Chain error: ${err?.message}`,
+              };
+            }
+            return updated;
+          });
+        }
+      }
+
+      setIsStreaming(false);
+      setChainStage('idle');
       return;
     }
 
-    // Path 2: No Web Speech API — fall back to LFM audio endpoint
+    // Path 2: No Web Speech API — send raw audio through the chain
     setInput('');
     try {
       const audioBlob = encodeWAV(audioChunksRef.current, 16000);
       sendMessage('[Transcribing via LFM audio...]');
-      await processAudioStream(audioBlob, 'workshop-browser:operator');
     } catch (err) {
-      console.warn('[OmniChat STT] LFM audio fallback failed:', err);
+      console.warn('[OmniChat] Voice capture failed:', err);
       sendMessage('[Voice captured — transcription unavailable. Try typing instead.]');
     }
-  }, [isRecording, sendMessage]);
+  }, [isRecording, sendMessage, ttsEnabled, coreIdentity]);
 
   // Spacebar handler (only when input not focused)
   useEffect(() => {
@@ -741,11 +779,13 @@ export const OmniChat: React.FC = () => {
       <div style={{
         padding: '3px 16px 7px',
         fontSize: '9px',
-        color: '#333',
+        color: chainStage !== 'idle' ? '#4ecdc4' : '#333',
         textAlign: 'center',
         letterSpacing: '0.08em',
       }}>
-        HOLD SPACE TO SPEAK • ENTER TO SEND • VOICE TRANSCRIPTION {sttAvailableRef.current ? 'ON' : 'OFF'}
+        {chainStage !== 'idle'
+          ? `◉ ${getChainStatusLabel(chainStage)}`
+          : `HOLD SPACE TO SPEAK • ENTER TO SEND • LFM CHAIN ${sttAvailableRef.current ? 'READY' : 'PARTIAL'}`}
       </div>
     </div>
   );
