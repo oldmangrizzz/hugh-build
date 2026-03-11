@@ -23,6 +23,7 @@ import {
   type ChainStage,
   getChainStatusLabel,
 } from "../services/lfmModelChain";
+import { REPLSession } from "../services/replContextManager";
 
 // Web Speech API types (not in standard TS lib)
 interface SpeechRecognitionEvent extends Event {
@@ -161,6 +162,9 @@ export const OmniChat: React.FC = () => {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
 
+  // REPL Session — token-aware context management with Superego Veto
+  const replSessionRef = useRef(new REPLSession());
+
   // Web Speech API refs
   const speechRecRef = useRef<SpeechRecognitionInstance | null>(null);
   const transcriptRef = useRef<string>('');
@@ -221,15 +225,15 @@ export const OmniChat: React.FC = () => {
     };
     setMessages(prev => [...prev, assistantMsg]);
 
-    // Build conversation history (last 10 messages)
-    const history = updatedMessages.slice(-10).map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // REPL context management — token-aware, priority-weighted history
+    const repl = replSessionRef.current;
+    repl.addMessage('user', text.trim());
 
     const systemPrompt = coreIdentity && coreIdentity.length > 0
       ? buildEnrichedPrompt(coreIdentity)
       : HUGH_SYSTEM_PROMPT;
+
+    const ctx = repl.getContext(systemPrompt);
 
     streamControllerRef.current = new AbortController();
 
@@ -237,7 +241,7 @@ export const OmniChat: React.FC = () => {
       const result = await runTextChain({
         text: text.trim(),
         systemPrompt,
-        history: history.slice(0, -1), // exclude current message (chain adds it)
+        history: ctx.messages,
         synthesize: ttsEnabled,
         onThinkingToken: (_token, fullText) => {
           // Live-update the streaming response (strip think tags)
@@ -256,6 +260,16 @@ export const OmniChat: React.FC = () => {
 
       // Finalize
       const finalContent = result.thinking.text;
+
+      // Superego Veto — check response against soul anchor invariants
+      const veto = repl.checkResponse(finalContent);
+      const displayContent = veto
+        ? `[SUPEREGO VETO] ${veto}\n\nOriginal response suppressed.`
+        : finalContent;
+
+      // Track assistant response in REPL session
+      repl.addMessage('assistant', displayContent);
+
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
@@ -263,16 +277,16 @@ export const OmniChat: React.FC = () => {
           updated[updated.length - 1] = {
             ...last,
             isStreaming: false,
-            content: finalContent,
+            content: displayContent,
           };
         }
         return updated;
       });
 
-      // Play Hugh's voice: LFM Audio S2S → fallback to browser TTS
-      if (ttsEnabled) {
+      // Play Hugh's voice: LFM Audio S2S → fallback to browser TTS (skip if vetoed)
+      if (ttsEnabled && !veto) {
         setChainStage('speaking');
-        playAudio(result.synthesis, finalContent);
+        playAudio(result.synthesis, displayContent);
       }
 
     } catch (error: any) {
@@ -436,15 +450,15 @@ export const OmniChat: React.FC = () => {
       setIsStreaming(true);
       setChainStage('transcribing');
 
-      // Build history + system prompt
-      const currentMessages = messagesRef.current;
-      const history = currentMessages.slice(-10).map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // REPL context management for voice path
+      const repl = replSessionRef.current;
+      repl.addMessage('user', transcript);
+
       const systemPrompt = coreIdentity && coreIdentity.length > 0
         ? buildEnrichedPrompt(coreIdentity)
         : HUGH_SYSTEM_PROMPT;
+
+      const ctx = repl.getContext(systemPrompt);
 
       const userMsg: ChatMessage = {
         role: 'user',
@@ -468,7 +482,7 @@ export const OmniChat: React.FC = () => {
         const result = await runFullChain({
           audioBlob,
           systemPrompt,
-          history,
+          history: ctx.messages,
           browserTranscript: transcript,
           onThinkingToken: (_token, fullText) => {
             const display = cleanResponse(fullText);
@@ -484,6 +498,15 @@ export const OmniChat: React.FC = () => {
         });
 
         const finalContent = result.thinking.text;
+
+        // Superego Veto
+        const veto = repl.checkResponse(finalContent);
+        const displayContent = veto
+          ? `[SUPEREGO VETO] ${veto}\n\nOriginal response suppressed.`
+          : finalContent;
+
+        repl.addMessage('assistant', displayContent);
+
         setMessages(prev => {
           const updated = [...prev];
           const last = updated[updated.length - 1];
@@ -491,16 +514,16 @@ export const OmniChat: React.FC = () => {
             updated[updated.length - 1] = {
               ...last,
               isStreaming: false,
-              content: finalContent,
+              content: displayContent,
             };
           }
           return updated;
         });
 
         // Play Hugh's voice via LFM Audio S2S → browser TTS fallback
-        if (ttsEnabled) {
+        if (ttsEnabled && !veto) {
           setChainStage('speaking');
-          playAudio(result.synthesis, finalContent);
+          playAudio(result.synthesis, displayContent);
         }
       } catch (err: any) {
         if (err?.name !== 'AbortError') {
