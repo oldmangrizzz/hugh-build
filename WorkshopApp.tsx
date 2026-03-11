@@ -21,6 +21,7 @@ import { ConvexProvider, ConvexReactClient, useMutation } from "convex/react";
 import { CliffordField } from "./components/CliffordField";
 import { HOTLDashboard } from "./components/HOTLDashboard";
 import { OmniChat } from "./components/OmniChat";
+import { useSomaticEmitter } from "./services/useSomaticEmitter";
 import { api } from "./convex/_generated/api";
 
 // Convex client — connected to Pheromone substrate
@@ -34,6 +35,9 @@ const WorkshopInner: React.FC = () => {
   useEffect(() => {
     initSystem().catch(console.error);
   }, []);
+
+  // Somatic emitter: telemetry → somatic pheromones → CliffordField modulation
+  useSomaticEmitter();
 
   return (
     <>
