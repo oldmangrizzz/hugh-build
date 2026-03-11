@@ -181,7 +181,7 @@ export async function thinkingInference(
       model: 'DavidAU/LFM2.5-1.2B-Thinking-Claude-4.6-Opus-Heretic-Uncensored-DISTILL',
       messages: [{ role: 'system', content: systemPrompt }, ...history],
       stream: true,
-      max_tokens: 512,
+      max_tokens: 2048,
       temperature: 0.7,
     }),
     signal,
@@ -232,8 +232,18 @@ export async function thinkingInference(
   cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
   cleaned = cleaned.replace(/^\s+/, '');
 
+  // Graceful degradation: if the model spent all tokens on <think> reasoning
+  // and produced no visible response, extract the last sentence from the think
+  // trace as a usable reply rather than returning a static fallback.
+  if (!cleaned && thinkTrace) {
+    const sentences = thinkTrace.replace(/\n/g, ' ').match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length > 0) {
+      cleaned = sentences[sentences.length - 1].trim();
+    }
+  }
+
   return {
-    text: cleaned || 'Copy that.',
+    text: cleaned || 'Inference returned empty. Model may still be warming up — give it a moment, Grizz.',
     thinkTrace,
   };
 }
