@@ -68,12 +68,12 @@ Browser → `ha.grizzlymedicine.icu` (isolated Pangolin/WireGuard tunnel) → Pr
 
 | Service | Credential |
 |---|---|
-| VPS SSH | root@187.124.28.147, `***REMOVED***` (DASH) |
-| Proxmox | root@192.168.7.232, `***REMOVED***` (EXCLAMATION) |
-| HA Long-Lived Token | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3MGM1ZjA4YWRiZTg0ZTM2YTI0YmY5M2I4ZDNkODdlNyIsImlhdCI6MTc3MzA4OTY3NSwiZXhwIjoyMDg4NDQ5Njc1fQ.JnitS57smDEOUSCrrlJij5SpWz24zIa34Ur7IuI-vPQ` |
+| VPS SSH | root@187.124.28.147, `REDACTED_ROTATE_ME` (DASH) |
+| Proxmox | root@192.168.7.232, `REDACTED_ROTATE_ME` (EXCLAMATION) |
+| HA Long-Lived Token | `REDACTED_HA_TOKEN_ROTATE_ME` |
 | Pangolin user | grizzlymedicine@me.com |
 | Convex deployment | sincere-albatross-464 |
-| Pangolin server secret | `485bdfd11d868f7061a163431bf7f3eea917dabf927cdc38a50ce5e7442ceba9` |
+| Pangolin server secret | `REDACTED_PANGOLIN_SECRET_ROTATE_ME` |
 
 ---
 
@@ -153,7 +153,7 @@ cp /opt/hugh-runtime/soul_anchor.yaml /opt/soul_anchor/anchor.yaml
 # Frontend
 cd ~/hughmkii && npm run build
 rsync -avz --delete dist/ root@187.124.28.147:/var/www/workshop/
-# password: ***REMOVED***
+# password: REDACTED_ROTATE_ME
 
 # Runtime
 cd ~/hughmkii/HughMK1 && npm run build

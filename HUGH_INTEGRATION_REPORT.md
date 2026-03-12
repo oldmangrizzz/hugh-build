@@ -291,7 +291,7 @@ if __name__ == "__main__":
 
 ### VPS Details
 - **Host:** `187.124.28.147` (Hostinger)
-- **SSH:** `root@187.124.28.147`, password: `***REMOVED***` (DASH)
+- **SSH:** `root@187.124.28.147`, password: `REDACTED_ROTATE_ME` (DASH)
 - **Frontend path:** `/var/www/workshop`
 
 ### Model Endpoints
@@ -304,7 +304,7 @@ if __name__ == "__main__":
 | 80/443 | nginx | Reverse proxy | Workshop frontend | Systemd: `nginx` |
 
 ### Running on Proxmox (192.168.7.232)
-- **SSH:** `root@192.168.7.232`, password: `***REMOVED***` (EXCLAMATION)
+- **SSH:** `root@192.168.7.232`, password: `REDACTED_ROTATE_ME` (EXCLAMATION)
 - **VL Node:** Runs on 32GB Proxmox VM
 - **Home Assistant:** 192.168.7.194:8123 (VM-103: HAOS)
 

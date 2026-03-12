@@ -117,8 +117,8 @@ hugh-build/
 
 | Service | Credential |
 |---------|------------|
-| VPS SSH | root@187.124.28.147, `***REMOVED***` (DASH) |
-| Proxm | root@192.168.7.232, `***REMOVED***` (EXCLAMATION) |
+| VPS SSH | root@187.124.28.147, `REDACTED_ROTATE_ME` (DASH) |
+| Proxm | root@192.168.7.232, `REDACTED_ROTATE_ME` (EXCLAMATION) |
 | Convex | sincere-albatross-464 |
 | LFM Audio | `http://localhost:8080/v1/audio/completions` |
 | LFM VL | `http://localhost:8081/vl-inference` |
@@ -240,8 +240,8 @@ Before marking "done":
 
 During session, no secrets were exposed. The following exist but were NOT committed:
 
-- VPS SSH password: `***REMOVED***`
-- Proxm SSH password: `***REMOVED***`
+- VPS SSH password: `REDACTED_ROTATE_ME`
+- Proxm SSH password: `REDACTED_ROTATE_ME`
 - Convex deployment: `sincere-albatross-464`
 - LFM API key: `hugh-local` (local inference, no external key)
 

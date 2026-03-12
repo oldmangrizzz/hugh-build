@@ -312,7 +312,7 @@ Harden KVM2 to match KVM4
 End-to-end voice test
 I need that SSH password to get started. Drop it and I'll start recon on both boxes immediately.
 
-***REMOVED*** for hostinger, ***REMOVED*** for proxmox
+REDACTED_ROTATE_ME for hostinger, REDACTED_ROTATE_ME for proxmox
 
 
 Thought process
@@ -394,7 +394,7 @@ Grizzly_Brief.md updated
 KVM2 (76.13.146.61) - running Docker, has old Pangolin
 KVM4 (187.124.28.147) - the Workshop server, Debian 12
 DNS chain: IONOS → Cloudflare → Hostinger
-Password: ***REMOVED*** for Hostinger, ***REMOVED*** for Proxmox
+Password: REDACTED_ROTATE_ME for Hostinger, REDACTED_ROTATE_ME for Proxmox
 User wants to consolidate Pangolin to KVM4, nuke it from KVM2
 
 **SSH Access Challenges**: 
@@ -543,7 +543,7 @@ All User Messages:
 "All right, so here's the deal. I've got 2 VPSs from Hostinger. And they're a CaveM 2 and a KVM 4. One of them is running just docker, and it used to have pangolin. The other is running... Debbie 12 has pengolin and a bunch of other shit now, hopefully. That's what you've been working on. I'm going to include the details from both VPSs. I don't care if you have to burn pangolin to the fucking ground. And we have to set up a new tunnel from cloud flare to penguin. Let's get it working because when I go into the CLI, or not the CLI, but the GUI, every single time, I She, I break shit. Would you like to know how I know I break shit? Look at Pangolin and the problems we're currently having. You have the one vos 76.13.146.61 is the kvm2 and 187.124.28.147 is kvm4, nooth use the same password which you have, and in ~/ProxmoxMCP-Plus is two macos mcp's so -I- wouldnt be the obe to fuck this up, yet again…Password for hostinger is the same for the kvm2 as 4, although now you have hardened the kvm4, i supposed we'll need to do that to the other"
 User answered questions: Consolidate Pangolin to KVM4, DNS still at Hostinger
 "Oh, hey, by the way, technically, my DNS goes from I-O-N-O-S to Cloud Flare to hosting her, because that's how I paid for everything."
-"***REMOVED*** for hostinger, ***REMOVED*** for proxmox"
+"REDACTED_ROTATE_ME for hostinger, REDACTED_ROTATE_ME for proxmox"
 
 Pending Tasks:
 **Waiting on Grizz**: Add SSH public key ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINxFXNbeWpOoJeiw5eDbFe4z8r6neHx4Xw9cKDGnNdy6 cowork-session to KVM4's ~/.ssh/authorized_keys via Hostinger VPanel console
@@ -562,9 +562,9 @@ I was performing SSH recon on both VPSs to prepare for the Pangolin consolidatio
 KVM4 (187.124.28.147) is locked to publickey-only SSH. I generated an ed25519 keypair at /sessions/determined-trusting-cannon/.ssh/cowork_key and asked Grizz to add the public key via Hostinger VPanel. I was about to start the Pangolin consolidation once KVM4 access is established.
 
 SSH credentials available:
-KVM2 (76.13.146.61): root / ***REMOVED*** (password auth works)
+KVM2 (76.13.146.61): root / REDACTED_ROTATE_ME (password auth works)
 KVM4 (187.124.28.147): root / publickey only (waiting for key to be added)
-Proxmox: ***REMOVED***
+Proxmox: REDACTED_ROTATE_ME
 SSH via paramiko (no sshpass available in sandbox)
 Generated keypair: /sessions/determined-trusting-cannon/.ssh/cowork_key and .pub
 

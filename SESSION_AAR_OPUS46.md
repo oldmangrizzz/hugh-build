@@ -50,7 +50,7 @@ Brought H.U.G.H. (Hyper Unified Guardian and Harbor-master) from a non-compiling
 ### Priority 2 — Polish
 5. **GitHub repo still PUBLIC** — Was supposed to go private hours ago. `gh repo edit oldmangrizzz/hugh-build --visibility private`
 
-6. **VPS uses password auth** — Should switch to SSH keys. Password is `***REMOVED***` on root@187.124.28.147.
+6. **VPS uses password auth** — Should switch to SSH keys. Password is `REDACTED_ROTATE_ME` on root@187.124.28.147.
 
 7. **TTS quality is basic** — Web Speech API voices vary wildly by device/browser. For proper chest-voice quality, consider ElevenLabs, Coqui TTS, or Piper TTS on the VPS.
 
@@ -162,8 +162,8 @@ Frontend: https://workshop.grizzlymedicine.icu
 cd ~/hugh-build
 npm run build
 tar -czf /tmp/workshop-dist.tar.gz -C dist .
-sshpass -p '***REMOVED***' scp -o StrictHostKeyChecking=no /tmp/workshop-dist.tar.gz root@187.124.28.147:/tmp/
-sshpass -p '***REMOVED***' ssh -o StrictHostKeyChecking=no root@187.124.28.147 \
+sshpass -p 'REDACTED_ROTATE_ME' scp -o StrictHostKeyChecking=no /tmp/workshop-dist.tar.gz root@187.124.28.147:/tmp/
+sshpass -p 'REDACTED_ROTATE_ME' ssh -o StrictHostKeyChecking=no root@187.124.28.147 \
   "rm -rf /var/www/workshop/* && tar -xzf /tmp/workshop-dist.tar.gz -C /var/www/workshop/ && find /var/www/workshop -name '._*' -delete"
 
 # Full deploy (frontend + Convex)
