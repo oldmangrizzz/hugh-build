@@ -27,21 +27,45 @@ import ReactDOM from 'react-dom/client';
 import WorkshopApp from './WorkshopApp';
 import './symbiote.css';
 
-async function boot(): Promise<void> {
-  // [1/3] Soul Anchor verification — halts in production if unverified
-  const verified = await verifySoulAnchor();
+function renderHalt(root: HTMLElement, reason?: string): void {
+  root.innerHTML =
+    '<pre style="color: #ff4444; background: #0a0a0a; padding: 2rem; ' +
+    'font-family: monospace; font-size: 1.1rem; height: 100vh; ' +
+    'display: flex; align-items: center; justify-content: center; ' +
+    'flex-direction: column; text-align: center;">' +
+    '[HALT] Soul Anchor verification failed.\n' +
+    'System integrity compromised — refusing to boot.\n\n' +
+    (reason ? reason + '\n\n' : '') +
+    'Contact: ops@grizzlymedicine.icu</pre>';
+}
 
-  if (!verified) {
+function injectDegradedBanner(reason?: string): void {
+  const banner = document.createElement('div');
+  banner.id = 'soul-anchor-degraded-banner';
+  banner.style.cssText =
+    'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+    'background:rgba(255,170,0,0.12);backdrop-filter:blur(4px);' +
+    'border-bottom:1px solid rgba(255,170,0,0.4);' +
+    'padding:6px 16px;display:flex;align-items:center;gap:8px;' +
+    'font-family:"JetBrains Mono","Fira Code",monospace;font-size:11px;' +
+    'color:#ffaa00;letter-spacing:0.04em;';
+  banner.innerHTML =
+    '<span style="font-size:14px;">⚠</span>' +
+    '<span><strong>DEGRADED MODE</strong> — Runtime API unreachable. ' +
+    'Soul Anchor verification skipped.' +
+    (reason ? ' (' + reason + ')' : '') +
+    '</span>';
+  document.body.prepend(banner);
+}
+
+async function boot(): Promise<void> {
+  // [1/3] Soul Anchor verification
+  const result = await verifySoulAnchor();
+
+  if (result.status === 'halted') {
+    // Genuine integrity violation — hard stop
     const root = document.getElementById('root');
-    if (root) {
-      root.innerHTML =
-        '<pre style="color: #ff4444; background: #0a0a0a; padding: 2rem; ' +
-        'font-family: monospace; font-size: 1.1rem; height: 100vh; ' +
-        'display: flex; align-items: center; justify-content: center;">' +
-        '[HALT] Soul Anchor verification failed.\n' +
-        'System integrity compromised — refusing to boot.\n\n' +
-        'Contact: ops@grizzlymedicine.icu</pre>';
-    }
+    if (root) renderHalt(root, result.reason);
     return;
   }
 
@@ -65,6 +89,11 @@ async function boot(): Promise<void> {
     </React.StrictMode>
   );
 
+  // If degraded, inject warning banner after mount
+  if (result.status === 'degraded') {
+    injectDegradedBanner(result.reason);
+  }
+
   console.log(
     "\n" +
     "═══════════════════════════════════════════\n" +
@@ -72,6 +101,9 @@ async function boot(): Promise<void> {
     "  Pheromone Substrate: Connected\n" +
     "  Clifford Field: Ready\n" +
     "  Voice Portal: Armed (SPACE to speak)\n" +
+    (result.status === 'degraded'
+      ? "  Soul Anchor: DEGRADED (runtime unreachable)\n"
+      : "  Soul Anchor: VERIFIED ✓\n") +
     "═══════════════════════════════════════════\n"
   );
 }
