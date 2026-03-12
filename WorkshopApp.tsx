@@ -35,7 +35,11 @@ const ImmersiveScene = lazy(() =>
 // Convex client — connected to Pheromone substrate
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
-// Inner component that has access to Convex hooks
+/**
+ * Inner component with access to Convex hooks (must be inside ConvexProvider).
+ * Handles system state initialization, agent seeding, render mode toggle,
+ * and orchestrates the full UI layer stack (Map → Clifford → Dashboard → OmniChat).
+ */
 const WorkshopInner: React.FC = () => {
   const initSystem = useMutation(api.pheromones.initializeSystemState);
   const seedAgents = useMutation(api.pheromones.seedInfrastructureAgents);

@@ -15,7 +15,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname),
+      '@': path.resolve(__dirname),              // Root import shorthand
       '@components': path.resolve(__dirname, 'components'),
       '@services': path.resolve(__dirname, 'services'),
       '@convex': path.resolve(__dirname, 'convex'),
@@ -25,6 +25,8 @@ export default defineConfig({
     port: 3000,
     host: true,
     proxy: {
+      // Dev proxy — routes /api/* to local LFM inference (CT102 via SSH tunnel)
+      // In production, nginx on VPS handles this routing
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,

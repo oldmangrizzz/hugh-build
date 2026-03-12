@@ -17,11 +17,11 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Configuration
-VPS_HOST="187.124.28.147"
+# Configuration — VPS target for rsync deployment
+VPS_HOST="187.124.28.147"             # Hostinger VPS (Pangolin gateway)
 VPS_USER="root"
-VPS_PATH="/var/www/workshop"
-CONVEX_DEPLOYMENT="uncommon-cricket-894"
+VPS_PATH="/var/www/workshop"          # nginx serves from here
+CONVEX_DEPLOYMENT="uncommon-cricket-894"  # Production Convex deployment (NOT dev:admired-goldfish)
 
 # Parse flags
 PROD=false
@@ -44,6 +44,7 @@ echo -e "${GREEN}Build complete: dist/$(ls -1 dist | wc -l) files${NC}\n"
 # Step 2: Deploy Convex
 echo -e "${GREEN}[2/4] Deploying Convex schema...${NC}"
 
+# --prod deploys to production; without flag, runs dev sync
 if [ "$PROD" = true ]; then
   npx convex deploy --prod
 else

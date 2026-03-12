@@ -27,6 +27,7 @@ import ReactDOM from 'react-dom/client';
 import WorkshopApp from './WorkshopApp';
 import './symbiote.css';
 
+/** Render a full-screen integrity halt when Soul Anchor verification fails. */
 function renderHalt(root: HTMLElement, reason?: string): void {
   root.innerHTML =
     '<pre style="color: #ff4444; background: #0a0a0a; padding: 2rem; ' +
@@ -39,6 +40,7 @@ function renderHalt(root: HTMLElement, reason?: string): void {
     'Contact: ops@grizzlymedicine.icu</pre>';
 }
 
+/** Inject a fixed banner warning that Soul Anchor verification was skipped (degraded mode). */
 function injectDegradedBanner(reason?: string): void {
   const banner = document.createElement('div');
   banner.id = 'soul-anchor-degraded-banner';
@@ -58,6 +60,10 @@ function injectDegradedBanner(reason?: string): void {
   document.body.prepend(banner);
 }
 
+/**
+ * Async boot sequence: Soul Anchor gate → Feature detection → React mount.
+ * Halts on integrity failure; degrades gracefully if runtime API is unreachable.
+ */
 async function boot(): Promise<void> {
   // [1/3] Soul Anchor verification
   const result = await verifySoulAnchor();

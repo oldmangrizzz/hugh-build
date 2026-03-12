@@ -134,8 +134,19 @@ function cleanResponse(raw: string): string {
   return cleaned;
 }
 
-/** cleanResponse is still needed for live-streaming display */
-
+/**
+ * OmniChat — Primary conversational interface component.
+ *
+ * Supports two input modes:
+ *   1. Text input → runTextChain (Think → optional Synthesize)
+ *   2. Voice input → runFullChain (Transcribe → Think → Synthesize)
+ *
+ * Audio playback uses the three-tier degradation chain from lfmModelChain:
+ *   Tier 1: Smart Router (XTTS/Piper) → Tier 2: Piper forced → Tier 3: Browser TTS
+ *
+ * Interrupt behavior: any user input (text send or mic activation) kills
+ * active audio playback via stopAudio().
+ */
 export const OmniChat: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
