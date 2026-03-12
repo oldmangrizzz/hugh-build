@@ -19,6 +19,7 @@ import {
   runTextChain,
   runFullChain,
   playAudio,
+  stopAudio,
   browserTTS,
   unlockTTS,
   type ChainStage,
@@ -204,6 +205,8 @@ export const OmniChat: React.FC = () => {
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
 
+    // Interrupt Hugh if he's speaking — user takes priority
+    stopAudio();
     // Unlock TTS on user gesture (Safari requires this before async TTS works)
     unlockTTS();
 
@@ -352,6 +355,8 @@ export const OmniChat: React.FC = () => {
 
   const startRecording = useCallback(async () => {
     if (isRecording || isStreaming) return;
+    // Interrupt Hugh if he's speaking — user takes priority
+    stopAudio();
     // Unlock TTS on user gesture (Safari requires this before async TTS works)
     unlockTTS();
     const ready = await initAudio();

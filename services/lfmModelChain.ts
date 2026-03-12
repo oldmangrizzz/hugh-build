@@ -313,13 +313,14 @@ async function tryPiperTTS(
   text: string,
   signal?: AbortSignal
 ): Promise<SynthesisResult | null> {
-  const { piperTTS } = getEndpoints();
+  // Route through the same smart router with engine forced to Piper
+  const { lfmAudioTTS } = getEndpoints();
 
   try {
-    const res = await fetchWithTimeout(piperTTS, {
+    const res = await fetchWithTimeout(lfmAudioTTS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ input: text, engine: 'piper' }),
       signal,
     }, PIPER_TIMEOUT_MS);
 
@@ -513,13 +514,23 @@ export async function runTextChain(opts: {
  * Play synthesized audio through the browser.
  * Falls back to Web Speech API TTS if no audio blob.
  */
+let _currentAudio: HTMLAudioElement | null = null;
+
 export function playAudio(result: SynthesisResult | null, fallbackText?: string): void {
+  // Stop any currently playing audio
+  stopAudio();
+
   if (result?.audioBlob) {
     const url = URL.createObjectURL(result.audioBlob);
     const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
+    _currentAudio = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (_currentAudio === audio) _currentAudio = null;
+    };
     audio.play().catch(err => {
       console.warn('[LFM Chain] Audio playback failed, falling back to browser TTS:', err);
+      if (_currentAudio === audio) _currentAudio = null;
       if (fallbackText) browserTTS(fallbackText);
     });
     return;
@@ -527,6 +538,18 @@ export function playAudio(result: SynthesisResult | null, fallbackText?: string)
 
   // Fallback: browser Web Speech API
   if (fallbackText) browserTTS(fallbackText);
+}
+
+/** Interrupt any currently playing Hugh audio + browser TTS */
+export function stopAudio(): void {
+  if (_currentAudio) {
+    _currentAudio.pause();
+    _currentAudio.currentTime = 0;
+    _currentAudio = null;
+  }
+  if (window.speechSynthesis?.speaking) {
+    window.speechSynthesis.cancel();
+  }
 }
 
 /**
