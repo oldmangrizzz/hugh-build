@@ -1,5 +1,135 @@
 # H.U.G.H. Workshop — Handoff After Action Report
-## Opus 4.6 Session VI — "The Voice Box" | March 12, 2026
+## Opus 4.6 Session VII — "The Acoustic Bypass" | March 12, 2026
+
+---
+
+## MISSION SUMMARY
+
+Executed COWORK_MEMO_005: Latency triage on the voice pipeline. Deployed Piper TTS as a fast tactical engine (Tier 2) alongside XTTS v2 (Tier 1). Built a smart routing layer that dispatches based on word count. TTFB for conversational voice went from **58.7 seconds to 415 milliseconds**.
+
+**Starting state:** XTTS v2 on CPU, 58.7s synthesis for 15s audio. Catastrophic 800ms latency budget failure.
+**Ending state:** Dual-engine voice architecture with smart router. Piper handles tactical (<20 words) at sub-600ms. XTTS handles long-form monologues. Four services running on CT102.
+
+---
+
+## FINAL LATENCY NUMBERS
+
+| Payload | Words | Engine | TTFB | Status |
+|---------|-------|--------|------|--------|
+| Short tactical | 6 | Piper | **415ms** | ✅ Under 1.5s |
+| Medium conversational | 15 | Piper | **566ms** | ✅ Under 1.5s |
+| Long report | 38 | XTTS | 19.9s | ⚠️ Async only |
+| Forced Piper (long) | 20+ | Piper | **648ms** | ✅ Under 1.5s |
+
+**Piper raw synthesis speed:** RTF 0.052x (19x realtime). 173ms to generate 3.3s of audio.
+
+---
+
+## ARCHITECTURE: THE LEVER
+
+```
+Client → Router (:8085) → word_count < 20 → Piper (:8084) → WAV [sub-600ms]
+                         → word_count >= 20 → XTTS (:8082)  → WAV [async]
+                         → engine:"piper"|"xtts" override
+```
+
+### Services on CT102
+
+| Service | Port | Engine | Purpose | Status |
+|---------|------|--------|---------|--------|
+| hugh-inference | 8080 | llama.cpp Vulkan + LoRA | LLM personality | ✅ 105 tok/s |
+| hugh-tts | 8082 | XTTS v2 (CPU) | High-fidelity voice (Tier 1) | ✅ |
+| hugh-piper | 8084 | Piper ONNX | Fast tactical voice (Tier 2) | ✅ |
+| hugh-voice-router | 8085 | Python router | Smart TTS dispatch | ✅ |
+
+All services systemd-managed, enabled, auto-restart on failure.
+
+---
+
+## WHAT WE BUILT
+
+### Prong 1: XTTS Chunked Streaming (Partial)
+- Rewrote `/opt/voice/tts_server.py` with sentence-boundary splitting
+- Chunked transfer encoding sends WAV header + per-sentence PCM
+- Works for direct clients hitting :8082
+- Router proxies XTTS in buffered mode (`stream=False`) to avoid BaseHTTPRequestHandler complications
+- **Next step:** Replace Python HTTP server with aiohttp/FastAPI for true async streaming through the router
+
+### Prong 2: Piper TTS (Complete)
+- Standalone binary: `/opt/piper/piper/piper` (no Python deps, ONNX runtime bundled)
+- Voice model: `en_US-lessac-medium.onnx` (63MB)
+- Server: `/opt/piper/piper_server.py` — subprocess wrapper, tempfile I/O
+- **415ms TTFB for a 6-word phrase. Mission accomplished.**
+
+### Smart Router (Complete)
+- `/opt/voice/tts_router.py` — word-count threshold routing
+- Threshold: 20 words (configurable via `WORD_THRESHOLD`)
+- Override: `{"engine": "piper"}` or `{"engine": "xtts"}` in request body
+- Health endpoint aggregates status from both backends
+- Port 8085 — single entry point for all TTS
+
+---
+
+## DEPENDENCY MAP
+
+| Component | Package | Notes |
+|-----------|---------|-------|
+| Piper | Binary release 2023.11.14-2 | Zero deps, ships own ONNX + espeak-ng |
+| Piper voice | en_US-lessac-medium | Good quality/speed tradeoff |
+| XTTS | coqui-tts 0.27.5 (Idiap fork) | torch 2.6 CPU, transformers <5 |
+| Router | Python 3.12 stdlib only | No additional deps |
+
+---
+
+## FILES ON CT102
+
+### New (Memo 005)
+- `/opt/piper/piper/` — Piper binary + libs
+- `/opt/piper/voices/en_US-lessac-medium.onnx` — Voice model
+- `/opt/piper/piper_server.py` — Piper HTTP API
+- `/opt/voice/tts_router.py` — Smart TTS router
+- `/etc/systemd/system/hugh-piper.service` — Piper systemd unit
+- `/etc/systemd/system/hugh-voice-router.service` — Router systemd unit
+
+### Modified (Memo 005)
+- `/opt/voice/tts_server.py` — Rewritten with chunked streaming support
+- `/etc/systemd/system/hugh-tts.service` — Added PYTHONUNBUFFERED=1
+
+---
+
+## WHAT DIDN'T WORK
+
+1. **Streaming proxy through BaseHTTPRequestHandler** — Python's stdlib HTTP server can't do non-blocking chunked forwarding cleanly. Would need aiohttp or similar.
+2. **PyTorch ROCm on Polaris** (from Memo 004) — Still dead. gfx803 not in precompiled wheels.
+
+---
+
+## NEXT STEPS (MEMO 006 TERRITORY)
+
+1. **VPS nginx wiring** — Route `/api/inference/v1/audio/speech` → CT102:8085 (router port) through Pangolin/Traefik
+2. **Custom Piper voice** — Train a Piper ONNX model from the Skarsgård reference audio for voice consistency between tiers
+3. **Frontend OmniChat integration** — Wire audio playback into the chat loop
+4. **Streaming upgrade** — Replace BaseHTTPRequestHandler with FastAPI/aiohttp for true async XTTS streaming through the router
+5. **Latency profiling** — Measure full loop: user speech → STT → LLM → TTS → playback
+
+---
+
+## RESOURCE USAGE (POST-DEPLOYMENT)
+
+| Resource | Value |
+|----------|-------|
+| RAM | 7.3GB / 24GB |
+| Disk | 18GB / 40GB |
+| VRAM | 1.3GB / 4GB (llama.cpp only) |
+| CPU services | 4 (inference, tts, piper, router) |
+
+---
+
+*58.7 seconds → 415 milliseconds. The lever works. Session VII complete.*
+
+---
+
+# Prior Session: Opus 4.6 Session VI — "The Voice Box" | March 12, 2026
 
 ---
 
