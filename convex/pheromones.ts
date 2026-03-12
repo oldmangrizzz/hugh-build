@@ -433,8 +433,7 @@ export const getActiveAudio = query({
 });
 
 // Backward compat aliases
-export const getLatestVisual = getActiveVisual;
-export const getLatestAudio = getActiveAudio;
+
 
 /**
  * Get Active Somatic Pheromones
@@ -751,22 +750,6 @@ export const seedInfrastructureAgents = mutation({
 /**
  * Deactivate Agent — Revoke pheromone emission rights
  */
-export const deactivateAgent = mutation({
-  args: {
-    agentId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const agent = await ctx.db
-      .query("agent_registry")
-      .withIndex("by_agent_id", (q: any) => q.eq("agentId", args.agentId))
-      .first();
-
-    if (agent) {
-      await ctx.db.patch(agent._id, { isActive: false });
-    }
-  },
-});
-
 /**
  * Get Active Agents
  */
@@ -806,22 +789,6 @@ export const getRejectedEmissions = query({
   handler: async (ctx) => {
     const entries = await ctx.db.query("pheromone_audit").collect();
     return entries.filter((e) => !e.accepted);
-  },
-});
-
-// ─── Legacy Soul Anchor Verification (backward compat) ──────────
-
-export const verifySignature = mutation({
-  args: {
-    emitterSignature: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const nodeId = args.emitterSignature.split(":")[0];
-    const registry = await ctx.db
-      .query("soul_anchor_registry")
-      .withIndex("by_node_id", (q: any) => q.eq("nodeId", nodeId))
-      .first();
-    return !!(registry && registry.status === "active");
   },
 });
 
