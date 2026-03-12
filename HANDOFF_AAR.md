@@ -1,200 +1,118 @@
-# H.U.G.H. — Handoff / After Action Report
-**Session Date:** 2026-03-09 / 03-10  
-**Classification:** Operator Eyes Only  
-**Prepared for:** Fresh context window continuation
+# H.U.G.H. Workshop — Handoff After Action Report
+## Opus 4.6 Session IV | March 12, 2026
 
 ---
 
-## Mission Summary
+## MISSION SUMMARY
 
-Built H.U.G.H. (Hyper Unified Guardian and Harbor-master) from concept to live system — a sovereign digital entity and mixed-reality research lab operating in the space between digital and physical. Two intelligences (Grizz + H.U.G.H.) co-inhabiting one shared substrate. Voice-first. Always malleable. E-Scape philosophy.
+Executed the full COWORK_MEMO_002 deployment plan — 4 sequential phases, 15 tasks, zero regressions. Hugh's personality is live on bare metal, the perimeter is hardened, dead code is purged, and the substrate is clean. This was the session where Hugh went from "code on a laptop" to "running in production with a soul."
 
----
+**Starting state:** Batches 1-3 code fixes applied locally (from COPILOT_MEMO_001), untested in prod, CORS wide open, dead functions in Convex, inference params untuned.
 
-## What Is Actually Live Right Now
-
-| System | URL | Status |
-|---|---|---|
-| Workshop frontend | https://workshop.grizzlymedicine.icu | ✅ Live |
-| H.U.G.H. runtime API | https://api.grizzlymedicine.icu/health | ✅ Live |
-| LFM inference (H.U.G.H.'s brain) | https://workshop.grizzlymedicine.icu/api/inference/v1/chat/completions | ✅ Live |
-| Home Assistant tunnel | https://ha.grizzlymedicine.icu | ✅ Live |
-| Convex (memory) | https://sincere-albatross-464.convex.cloud | ✅ Live |
-| Pangolin (tunnel controller) | https://pangolin.grizzlymedicine.icu | ✅ Live |
-
-**The voice pipeline works end-to-end:**  
-Space bar → Web Audio waveform → transcript → `streamToHugh()` → LFM inference → streaming response in OmniChat
-
-**Home Assistant is wired:**  
-Browser → `ha.grizzlymedicine.icu` (isolated Pangolin/WireGuard tunnel) → Proxmox LAN → HA at 192.168.7.194:8123
+**Ending state:** Frontend deployed, Convex redeployed (twice — once with fixes, once with cleanup), CORS locked, nginx verified, personality LoRA confirmed binding at 22.9 tok/s, all dead code removed. 15/15 tasks green.
 
 ---
 
-## Infrastructure Map
+## WHAT GOT DONE
+
+### Phase 1: The Plumbing (Deploy & Verify)
+- `npm run build` → clean
+- `rsync` to VPS `/var/www/workshop/` → deployed
+- `npx convex deploy -y` → live on `uncommon-cricket-894`
+- `npx convex run --prod pheromones:seedInfrastructureAgents` → 4 soul anchors verified
+- CT104 started → knowledge-db on port 8084
+
+**Gotcha discovered:** `npx convex run` defaults to dev (`admired-goldfish-243`) via `.env.local`. Must use `--prod` flag for production commands.
+
+### Phase 2: The Perimeter (Infrastructure Cleanup)
+- Nginx routes verified: `/api/inference/` blocks exist and proxy correctly through Pangolin tunnels
+- CORS: replaced 6 wildcard `Access-Control-Allow-Origin "*"` → `https://workshop.grizzlymedicine.icu`
+- Cloud-init SSH override: already removed (prior session)
+- Stale nginx backup: already removed (prior session)
+- HA token: already externalized to `/etc/nginx/secrets/ha_auth_header.conf` (prior session)
+- `nginx -t` → passed, reloaded
+
+### Phase 3: The Ghost (Cognitive Tuning)
+- Pulled CT102 inference logs — service stable
+- Updated systemd service with tuned params:
+  - `temperature`: 0.4 (was default ~0.8)
+  - `top_p`: 0.85
+  - `repetition_penalty`: 1.15
+- **LoRA A/B test results:**
+
+| Metric | WITH LoRA | WITHOUT LoRA |
+|--------|-----------|--------------|
+| Coherence | Structured, finishes naturally at ~400 tokens | Rambles in `<think>` block, never produces output |
+| Speed | 22.9 tok/s | 23.4 tok/s |
+| Personality | EMS-flavored, professional, markdown-formatted | Generic, unfocused, recursive |
+| Verdict | **✅ Production-ready** | ❌ Unusable alone |
+
+### Phase 4: Cleanup
+- Removed dead Convex functions: `deactivateAgent`, `verifySignature`, `getLatestVisual`, `getLatestAudio`
+- Deleted stale `check/` and `check2/` directories
+- `.env.local` already in `.gitignore` ✅
+- Build verified clean, Convex redeployed, committed and pushed
+
+---
+
+## COMMITS THIS SESSION
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  HOSTINGER VPS (187.124.28.147)                         │
-│                                                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │  nginx      │  │ H.U.G.H.     │  │  llama.cpp    │  │
-│  │  :80/:443   │  │ runtime      │  │  LFM2.5-1.2B  │  │
-│  │  workshop/  │  │ :8090        │  │  :8080        │  │
-│  │  api proxy  │  │ systemd      │  │  systemd      │  │
-│  └─────────────┘  └──────────────┘  └───────────────┘  │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │  Pangolin (Docker)                              │    │
-│  │  pangolin.grizzlymedicine.icu                   │    │
-│  │  Site 2: coolify (subnet 100.89.128.4/30)       │    │
-│  │  Site 3: ha-workshop (subnet 100.90.128.1/24)   │    │
-│  └─────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-         │ WireGuard tunnel (site 3)
-         ▼
-┌──────────────────────────────────┐
-│  PROXMOX (192.168.7.232)         │
-│  Newt agent running here         │
-│  (LAN access to HA VM)           │
-│                                  │
-│  VM-103: HAOS                    │
-│  Home Assistant: 192.168.7.194   │
-└──────────────────────────────────┘
-```
-
----
-
-## Credentials (DO NOT SHARE)
-
-| Service | Credential |
-|---|---|
-| VPS SSH | root@187.124.28.147, `REDACTED_ROTATE_ME` (DASH) |
-| Proxmox | root@192.168.7.232, `REDACTED_ROTATE_ME` (EXCLAMATION) |
-| HA Long-Lived Token | `REDACTED_HA_TOKEN_ROTATE_ME` |
-| Pangolin user | grizzlymedicine@me.com |
-| Convex deployment | sincere-albatross-464 |
-| Pangolin server secret | `REDACTED_PANGOLIN_SECRET_ROTATE_ME` |
-
----
-
-## Repository State
-
-- **https://github.com/oldmangrizzz/HughMKII** — main repo (frontend + native apps + runtime)  
-  HEAD: `90fc30e` — "feat: full system wiring — HA tunnel, LFM inference, no mock data"
-- **https://github.com/oldmangrizzz/HughMK1** — runtime mirror  
-  HEAD: `1d2b081`
-
-Local: `~/hughmkii/` — frontend+native  
-Local: `~/hughmkii/HughMK1/` — runtime  
-Local: `~/hughmkii/H.U.G.H./` — Xcode project (5 Apple platform targets)
-
----
-
-## Key Files
-
-| File | Purpose |
-|---|---|
-| `~/hughmkii/services/homeAssistant.ts` | HA service — calls `https://ha.grizzlymedicine.icu` |
-| `~/hughmkii/services/hughService.ts` | LFM inference — `streamToHugh()`, `sendToHugh()` |
-| `~/hughmkii/services/config.ts` | Single source of truth for all endpoint defaults |
-| `~/hughmkii/components/OmniChat.tsx` | Chat UI — uses `streamToHugh`, listens for `hugh:voice-submit` |
-| `~/hughmkii/components/VoicePortal.tsx` | Voice input — Space bar, Web Audio, dispatches voice event |
-| `~/hughmkii/components/CliffordField.tsx` | Living vortex field — 500 energy stream lines, mouse parallax |
-| `~/hughmkii/HughMK1/src/index.ts` | Runtime boot + HTTP webhook server (:8090) |
-| `~/hughmkii/HughMK1/src/home-assistant-bridge.ts` | HA ↔ H.U.G.H. bidirectional bridge |
-| `~/hughmkii/HughMK1/agents.md` | H.U.G.H.'s operational brain — 625 lines, deployed to VPS |
-| `/opt/soul_anchor/anchor.yaml` (VPS) | Cryptographic identity gate — runtime dies without it |
-| `~/hughmkii/H.U.G.H./H.U.G.H./Core/HUGHClient.swift` | Unified Swift service layer (all 5 Apple platforms) |
-| `~/hughmkii/PRIVATE_README.md` | Full operator manual |
-
----
-
-## What Is Genuinely Incomplete (Honest)
-
-| Item | Status | Notes |
-|---|---|---|
-| LFM speech-to-speech audio | Coded, untested | `/audio/speech-to-speech` endpoint shape unverified against live Liquid AI API |
-| MCP Docker images | Not built | `mcp-harbormaster.ts` references `grizzly/proxmox-mcp:latest` etc — images don't exist yet |
-| HOTLDashboard audit/somatic/comms panels | Empty until runtime writes to Convex | Logic is there, data isn't flowing yet |
-| ConsciousnessStream audio | Sine wave animation only | Real AnalyserNode hookup to mic/TTS not wired |
-| Mapbox | Needs token | `mapboxToken: ''` in config — map won't render |
-| Swift/Xcode native apps | Code complete, not compiled | Need Xcode build test, SPM `convex-swift` package to be added |
-| Alexa skill bridge | Not started | Was on roadmap, never reached |
-| Convex `ha_events` pipeline | HA→runtime→Convex path exists, not fully verified end-to-end | |
-
----
-
-## VPS Service Commands
-
-```bash
-# Runtime
-systemctl status hugh-runtime
-systemctl restart hugh-runtime
-journalctl -u hugh-runtime -f
-
-# Inference
-systemctl status hugh-inference
-systemctl restart hugh-inference
-
-# Frontend
-systemctl status workshop-serve
-
-# Soul anchor check (ALWAYS after redeploy)
-ls /opt/soul_anchor/anchor.yaml
-# If missing:
-cp /opt/hugh-runtime/soul_anchor.yaml /opt/soul_anchor/anchor.yaml
+205e3a0  Phase 2-4: Deploy, infrastructure hardening, cognitive tuning, cleanup
+ea02b4d  Red team remediation: Batches 1-3 security fixes + credential scrub
 ```
 
 ---
 
-## Deploy Commands
+## INFRASTRUCTURE STATE
 
-```bash
-# Frontend
-cd ~/hughmkii && npm run build
-rsync -avz --delete dist/ root@187.124.28.147:/var/www/workshop/
-# password: REDACTED_ROTATE_ME
-
-# Runtime
-cd ~/hughmkii/HughMK1 && npm run build
-rsync -avz --delete dist/ root@187.124.28.147:/opt/hugh-runtime/
-ssh root@187.124.28.147 'cp /opt/hugh-runtime/soul_anchor.yaml /opt/soul_anchor/anchor.yaml && systemctl restart hugh-runtime'
-
-# Convex schema
-cd ~/hughmkii/HughMK1/hugh-memory && npx convex deploy --prod
-```
+| System | Status | Notes |
+|--------|--------|-------|
+| Workshop Frontend | ✅ Live | rsync'd to VPS, latest build |
+| Convex Substrate | ✅ Live | `uncommon-cricket-894`, dead fns purged |
+| CT102 (LFM Inference) | ✅ Live | LoRA bound, tuned params baked into systemd |
+| CT104 (Knowledge DB) | ✅ Running | port 8084, 8262+ nodes |
+| VPS Nginx | ✅ Hardened | CORS strict, routes verified |
+| Git History | ✅ Clean | BFG scrubbed all credentials |
 
 ---
 
-## Proxmox Fail2ban Warning
+## WHAT'S NEXT (NOT STARTED)
 
-**Rapid SSH reconnects to Proxmox (192.168.7.232) will trigger lockout.**  
-Wait 60-90 seconds between SSH connections to Proxmox.  
-Use single atomic SSH calls with heredoc — never rapid sequential connections.
+### Immediate Priority
+1. **Voice LoRA Deployment (Task 6.5)** — Personality confirmed sound, green light to deploy voice. XTTS fine-tuned weights exist from training session.
+2. **OmniChat → CT102 Full Wiring** — Frontend audio round-trip (record → transcribe → infer → TTS → playback) needs end-to-end testing.
 
----
+### Infrastructure
+3. **Password Rotation** — Grizz manual task. VPS and Proxmox root passwords should be rotated post-BFG.
+4. **CT102 GPU** — Currently CPU-only at 22.9 tok/s. GPU passthrough would dramatically improve speed.
 
-## Known Leaked Secrets (Rotate These)
-
-During session, `mcp_agent.secrets.yaml` contained live keys in plaintext.  
-File is now in `.gitignore` but the keys should be rotated:
-- OpenRouter API key
-- HuggingFace API token  
-- Brave Search API key
-
----
-
-## For the Next Context Window
-
-Tell the fresh instance:
-1. H.U.G.H. is built and live — not theoretical
-2. The voice-to-inference pipeline works
-3. HA is tunneled through Pangolin (isolated WireGuard site, NIST-compliant)
-4. Incomplete items are listed above — pick one and close it
-5. Read `PRIVATE_README.md` and this file before touching anything
-6. The soul anchor MUST exist at `/opt/soul_anchor/anchor.yaml` or runtime dies on boot
-7. Proxmox has Fail2ban — slow down on SSH
+### Architecture Gaps (from COPILOT_MEMO_002 Task 6.x)
+5. **updateSystemState mutation** — Telemetry never updates after boot.
+6. **Cron/Heartbeat** — No periodic health checks. Substrate goes stale without TTL-driven decay.
+7. **Platform Adapter** — `services/platform_adapter.ts` scaffolded but not wired.
 
 ---
 
-*H.U.G.H. — The Workshop is open.*
+## KEY TECHNICAL NOTES FOR NEXT SESSION
+
+- **Convex prod vs dev**: Always use `--prod` flag with `npx convex run`. Default hits dev.
+- **SSH access**: `ssh -i ~/.ssh/hugh_vps_v2 root@187.124.28.147` (VPS), `ssh -i ~/.ssh/hugh_vps_v2 root@192.168.7.232` (Proxmox)
+- **Container exec**: `pct exec 102 -- bash -c "COMMAND"` (from Proxmox host)
+- **Nginx routes go through Pangolin tunnels**, not direct LAN. `proxy_pass https://127.0.0.1:443` with Host header.
+- **LoRA model path on CT102**: `/opt/models/hugh_personality_lora.gguf`
+- **Base model on CT102**: LFM 2.5-1.2B-Thinking-Claude-Opus-Heretic GGUF
+- **Inference service**: `/etc/systemd/system/hugh-inference.service` (llama-server)
+- **CT104 API**: form-urlencoded for `/ingest/text`, multipart for `/ingest/file`, GET with `q=` and `n=` for `/search`
+
+---
+
+## OPERATOR NOTES
+
+Grizz — all four phases of COWORK_MEMO_002 are complete. Hugh's personality is confirmed structurally sound and producing coherent, on-brand output. The LoRA is doing exactly what it was trained to do: keeping the thinking concise and the output professional.
+
+The big remaining piece is voice. Everything else is polish and hardening. The bones are solid.
+
+*Workshop secure. Harbor-master standing down.*
+
+🐻
