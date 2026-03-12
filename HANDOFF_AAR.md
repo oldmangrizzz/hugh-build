@@ -1,5 +1,133 @@
 # H.U.G.H. Workshop — Handoff After Action Report
-## Opus 4.6 Session V — "The Ralph Wiggum Directive" | March 12, 2026
+## Opus 4.6 Session VI — "The Voice Box" | March 12, 2026
+
+---
+
+## MISSION SUMMARY
+
+Executed COWORK_MEMO_004: Deployed XTTS v2 voice synthesis engine on CT102. H.U.G.H. can now speak. Zero-shot voice cloning from Skarsgård reference audio through a live API endpoint.
+
+**Starting state:** GPU passthrough complete (105.4 tok/s inference). No voice synthesis capability.
+**Ending state:** Full TTS pipeline operational — API endpoint on port 8082, systemd-managed, producing ~15s audio clips with Skarsgård voice profile.
+
+---
+
+## WHAT WE ACCOMPLISHED
+
+### Phase 1: Python 3.12 Environment (DONE — Prior Session)
+- Python 3.12.9 built from source with `--enable-optimizations`
+- Altinstalled to `/opt/python312/` — system Python 3.13 untouched
+- Venv created at `/opt/tts-env-3.12/`
+
+### Phase 2: PyTorch (DONE)
+- **ROCm path failed**: PyTorch ROCm 5.7 imports fine, sees GPU, but `invalid device function` on kernel dispatch — precompiled wheels don't include gfx803 (Polaris) kernels. AMD dropped Polaris from official ROCm.
+- **Decision**: CPU PyTorch for TTS. GPU stays dedicated to llama.cpp Vulkan inference. No VRAM contention.
+- **Final stack**: `torch==2.6.0+cpu`, `torchaudio==2.6.0+cpu` (pinned below 2.9 to avoid torchcodec dependency which needs `--enable-shared` Python)
+
+### Phase 3: XTTS v2 Deployment (DONE)
+- Original Coqui `TTS` package: DEAD. Python <3.12 hard-coded, repo archived.
+- **Idiap community fork `coqui-tts` (v0.27.5)**: Clean install on Python 3.12. Drop-in replacement.
+- Pinned `transformers>=4.36,<5` (v5 broke `isin_mps_friendly` import)
+- FFmpeg 7 installed for audio I/O
+- XTTS v2 base model downloaded (~1.8GB), cached at `~/.local/share/tts/`
+- Reference speaker: `/opt/voice/hugh_ref.mp3` (Skarsgård/Cerdic)
+
+### Phase 4: API Server & Systemd (DONE)
+- `/opt/voice/tts_server.py` — HTTP server on port 8082
+  - `POST /api/inference/v1/audio/speech` — accepts `{"input": "text"}`, returns WAV
+  - `GET /health` — status check
+- `hugh-tts.service` — systemd unit, enabled, auto-restart on failure
+- Both services confirmed running:
+  - `hugh-inference.service` — LLM inference (port 8080, Vulkan GPU)
+  - `hugh-tts.service` — Voice synthesis (port 8082, CPU)
+
+### Phase 4.5: Round-Trip Test (DONE)
+- Test synthesis: "The Workshop is open. Clifford field nominal. What wisdom do you seek today?"
+- **Result**: HTTP 200, 756KB WAV, ~15.8s audio
+- **Synthesis time**: 58.7s (3.7x realtime on CPU)
+- Audio files pulled to local: `voice_raw/test_output.wav`, `voice_raw/api_test.wav`
+
+---
+
+## PERFORMANCE PROFILE
+
+| Metric | Value |
+|--------|-------|
+| Model load (cold) | ~45s |
+| Model load (cached) | ~20s |
+| Synthesis (15s audio) | ~58s |
+| RTF (realtime factor) | 3.7x |
+| Memory (TTS loaded) | ~6.5GB of 24GB |
+| Disk (CT102 total) | 18GB of 40GB |
+| VRAM (llama.cpp) | 1.3GB of 4GB |
+
+---
+
+## DEPENDENCY HELL MAP (FOR FUTURE REFERENCE)
+
+| Package | Version | Why |
+|---------|---------|-----|
+| Python | 3.12.9 (source build) | 3.13 breaks PyTorch wheels, 3.11 would've been safer but 3.12 works with community fork |
+| torch | 2.6.0+cpu | 2.10 requires torchcodec which needs libpython3.12.so (--enable-shared), 2.6 uses soundfile |
+| torchaudio | 2.6.0+cpu | Must match torch version |
+| coqui-tts | 0.27.5 (Idiap) | Community fork, supports 3.12. Original `TTS` package is dead. |
+| transformers | 4.57.6 | <5.0 required — v5 removed `isin_mps_friendly` |
+| torchcodec | REMOVED | Not compatible without --enable-shared Python build |
+| ffmpeg | 7.1.3 (Debian Trixie) | Required by torchaudio for audio loading |
+
+---
+
+## WHAT DIDN'T WORK
+
+1. **PyTorch ROCm on Polaris**: `torch.cuda.is_available()` = True, but kernel dispatch fails. gfx803 not in precompiled wheels.
+2. **Original `TTS` package**: Hard caps Python <3.12 in both setup.py and trainer dependency. Archived repo.
+3. **torch 2.10+cpu**: Requires torchcodec which needs libpython3.12.so shared library. Our altinstall didn't use --enable-shared.
+4. **Pandas <2.0**: Required by original TTS, no binary wheel for Python 3.12.
+
+---
+
+## SERVICES ON CT102
+
+| Service | Port | Backend | Status |
+|---------|------|---------|--------|
+| hugh-inference | 8080 | llama.cpp Vulkan + LoRA | ✅ Active (105 tok/s) |
+| hugh-tts | 8082 | XTTS v2 CPU | ✅ Active (~3.7x RT) |
+
+---
+
+## NEXT STEPS (MEMO 005 TERRITORY)
+
+1. **Optimize TTS latency**: Consider chunked streaming (synthesize sentence-by-sentence), warm model pooling, or Piper TTS as a fast fallback for short utterances
+2. **Wire nginx routes**: VPS needs `/api/inference/v1/audio/speech` → CT102:8082 proxy
+3. **Voice LoRA weights**: The Colab training may have produced fine-tuned XTTS weights — if they exist in hugh-core, bind them
+4. **Frontend integration**: OmniChat needs to call the TTS endpoint and play the returned WAV
+5. **Rebuild Python 3.12 with --enable-shared**: Would unlock torch 2.10+ and torchcodec (better audio I/O, potential speed improvements)
+
+---
+
+## FILES MODIFIED
+
+### On CT102 (192.168.7.232 → container 102):
+- `/opt/voice/tts_server.py` — TTS API server
+- `/opt/voice/hugh_ref.mp3` — Skarsgård reference speaker audio
+- `/opt/voice/test_output.wav` — First synthesis test
+- `/opt/voice/api_test.wav` — API round-trip test
+- `/etc/systemd/system/hugh-tts.service` — Systemd unit
+- `/opt/tts-env-3.12/` — Python 3.12 venv (torch 2.6, coqui-tts 0.27.5)
+- `~/.local/share/tts/` — XTTS v2 model cache
+
+### On local repo:
+- `voice_raw/test_output.wav` — Pulled synthesis test audio
+- `voice_raw/api_test.wav` — Pulled API test audio
+- `HANDOFF_AAR.md` — This file (overwritten from Session V)
+
+---
+
+*The Workshop has a voice. It's rough, it's slow, but it speaks. Session VI complete.*
+
+---
+
+# Prior Session: Opus 4.6 Session V — "The Ralph Wiggum Directive" | March 12, 2026
 
 ---
 
