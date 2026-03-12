@@ -43,8 +43,9 @@ const WorkshopInner: React.FC = () => {
 
   // Seed system state + register infrastructure agents on first boot
   useEffect(() => {
-    initSystem().catch(console.error);
-    seedAgents().catch(console.error);
+    initSystem()
+      .then(() => seedAgents())
+      .catch(console.error);
   }, []);
 
   // Somatic emitter: telemetry → somatic pheromones → CliffordField modulation

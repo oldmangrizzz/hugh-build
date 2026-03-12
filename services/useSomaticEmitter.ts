@@ -70,8 +70,10 @@ export function useSomaticEmitter() {
         turbulence: 1 + intensity * 0.2,
         ttlMs: SOMATIC_TTL_MS,
         emitterSignature: "workshop-browser:somatic",
-        emitterId: "somatic-telemetry-bridge",
-      }).catch(() => {}); // Silent fail — somatic is non-critical
+        emitterId: "somatic-emitter",
+      }).catch((err) => {
+        console.warn('[Somatic Emitter] Emission failed:', err);
+      });
     }
 
     // Corruption → Fear Toxin (turbulence spike)
@@ -84,8 +86,10 @@ export function useSomaticEmitter() {
         hueShift: -30 * intensity, // Shift toward magenta
         ttlMs: SOMATIC_TTL_MS,
         emitterSignature: "workshop-browser:somatic",
-        emitterId: "somatic-telemetry-bridge",
-      }).catch(() => {});
+        emitterId: "somatic-emitter",
+      }).catch((err) => {
+        console.warn('[Somatic Emitter] Emission failed:', err);
+      });
     }
 
     // Context Pressure → Tunnel Vision (drift speed reduction)
@@ -98,8 +102,10 @@ export function useSomaticEmitter() {
         turbulence: 1 + intensity * 0.3,
         ttlMs: SOMATIC_TTL_MS,
         emitterSignature: "workshop-browser:somatic",
-        emitterId: "somatic-telemetry-bridge",
-      }).catch(() => {});
+        emitterId: "somatic-emitter",
+      }).catch((err) => {
+        console.warn('[Somatic Emitter] Emission failed:', err);
+      });
     }
 
     // Compute Load → Spinal Compression (turbulence + warm hue)
@@ -113,8 +119,10 @@ export function useSomaticEmitter() {
         driftSpeed: 1 - intensity * 0.3,
         ttlMs: SOMATIC_TTL_MS,
         emitterSignature: "workshop-browser:somatic",
-        emitterId: "somatic-telemetry-bridge",
-      }).catch(() => {});
+        emitterId: "somatic-emitter",
+      }).catch((err) => {
+        console.warn('[Somatic Emitter] Emission failed:', err);
+      });
     }
   }, [systemState, emitSomatic]);
 }

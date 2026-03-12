@@ -62,7 +62,7 @@ The longest fight of the session. 13 iterations to get both personality and voic
 Red team audit delivered a **Grade F** on security posture. The response was immediate and comprehensive.
 
 **Findings:**
-- Root passwords (`***REMOVED***`, `***REMOVED***`) committed **18+ times** across **7 public files**
+- Root passwords (now rotated) were committed **18+ times** across **7 public files**
 - Home Assistant JWT token (expires 2036) — public
 - Pangolin secret — public
 - Mapbox secret key — public

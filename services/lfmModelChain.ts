@@ -614,7 +614,9 @@ async function emitVLPheromone(vl: VLResult): Promise<void> {
 
 // ─── Utilities ──────────────────────────────────────────────
 
-function mapIntent(text: string): string {
+type PheromoneIntent = "idle" | "media_playback" | "spatial_search" | "text_display" | "alert" | "dashboard" | "navigation" | "control" | "ha_control";
+
+function mapIntent(text: string): PheromoneIntent {
   const lower = text.toLowerCase();
   if (lower.includes('play') || lower.includes('show')) return 'media_playback';
   if (lower.includes('search') || lower.includes('find') || lower.includes('where')) return 'spatial_search';

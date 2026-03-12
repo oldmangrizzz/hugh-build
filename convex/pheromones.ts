@@ -104,7 +104,64 @@ export const emitVisual = mutation({
       c: v.float64(),
       d: v.float64(),
     })),
-    content: v.any(), // ContentPayload union — runtime validated
+    content: v.union(
+      v.object({ type: v.literal("ambient") }),
+      v.object({
+        type: v.literal("media"),
+        sourceUrl: v.string(),
+        mediaType: v.union(v.literal("video"), v.literal("audio"), v.literal("image")),
+        autoplay: v.optional(v.boolean()),
+        loop: v.optional(v.boolean()),
+        aspectRatio: v.optional(v.string()),
+      }),
+      v.object({
+        type: v.literal("text"),
+        content: v.string(),
+        format: v.optional(v.union(v.literal("markdown"), v.literal("plaintext"), v.literal("code"), v.literal("terminal"))),
+        fontSize: v.optional(v.float64()),
+      }),
+      v.object({
+        type: v.literal("dashboard"),
+        panels: v.array(v.object({
+          id: v.string(),
+          label: v.string(),
+          dataSource: v.string(),
+          vizType: v.union(v.literal("metric"), v.literal("chart"), v.literal("status"), v.literal("log")),
+          position: v.object({ x: v.float64(), y: v.float64(), z: v.float64() }),
+          size: v.object({ width: v.float64(), height: v.float64() }),
+        })),
+      }),
+      v.object({
+        type: v.literal("control"),
+        controlType: v.union(v.literal("button"), v.literal("toggle"), v.literal("slider"), v.literal("select")),
+        label: v.string(),
+        value: v.optional(v.string()),
+        action: v.string(),
+        actionPayload: v.optional(v.string()),
+      }),
+      v.object({
+        type: v.literal("navigation"),
+        items: v.array(v.object({
+          id: v.string(),
+          label: v.string(),
+          icon: v.optional(v.string()),
+          action: v.string(),
+        })),
+        layout: v.union(v.literal("radial"), v.literal("linear"), v.literal("orbital")),
+      }),
+      v.object({
+        type: v.literal("ha_entity"),
+        entityId: v.string(),
+        domain: v.string(),
+        friendlyName: v.string(),
+        currentState: v.optional(v.string()),
+      }),
+      v.object({
+        type: v.literal("html"),
+        markup: v.string(),
+        sandboxed: v.boolean(),
+      }),
+    ), // ContentPayload union — schema enforced
     layer: v.optional(v.number()),
     persistent: v.optional(v.boolean()),
     ttlMs: v.number(),
@@ -166,7 +223,17 @@ export const emitVisual = mutation({
  */
 export const emitAudio = mutation({
   args: {
-    intent: v.string(),
+    intent: v.union(
+      v.literal("idle"),
+      v.literal("media_playback"),
+      v.literal("spatial_search"),
+      v.literal("text_display"),
+      v.literal("alert"),
+      v.literal("dashboard"),
+      v.literal("navigation"),
+      v.literal("control"),
+      v.literal("ha_control"),
+    ),
     transcription: v.optional(v.string()),
     intentVector: v.optional(v.array(v.float64())),
     confidence: v.float64(),
@@ -281,13 +348,30 @@ export const reinforce = mutation({
     pheromoneId: v.id("visual_pheromones"),
     additionalTtlMs: v.number(),
     emitterSignature: v.string(),
+    emitterId: v.string(),
   },
   handler: async (ctx, args) => {
+    // Verify the emitter is authorized before allowing reinforcement
+    await verifyEmitter(ctx, args.emitterId, args.emitterSignature, "visual", "reinforce", 1.0);
+
     const existing = await ctx.db.get(args.pheromoneId);
     if (!existing) return null;
 
+    // Cap additional TTL to prevent infinite extension (max 60 seconds per reinforce)
+    const cappedTtl = Math.min(args.additionalTtlMs, 60000);
+
     await ctx.db.patch(args.pheromoneId, {
-      expiresAt: Date.now() + args.additionalTtlMs,
+      expiresAt: Date.now() + cappedTtl,
+    });
+
+    // Audit log the reinforcement
+    await ctx.db.insert("pheromone_audit", {
+      timestamp: Date.now(),
+      emitterId: args.emitterId,
+      pheromoneType: "visual" as const,
+      intent: "reinforce",
+      weight: 1.0,
+      accepted: true,
     });
 
     return args.pheromoneId;
@@ -805,8 +889,11 @@ export const getCoreIdentity = query({
 });
 
 export const getAllKnowledge = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("knowledge_base").collect();
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const maxResults = Math.min(args.limit ?? 100, 500);
+    return await ctx.db.query("knowledge_base").take(maxResults);
   },
 });

@@ -21,7 +21,7 @@ NC='\033[0m' # No Color
 VPS_HOST="187.124.28.147"
 VPS_USER="root"
 VPS_PATH="/var/www/workshop"
-CONVEX_DEPLOYMENT="admired-goldfish-243"
+CONVEX_DEPLOYMENT="uncommon-cricket-894"
 
 # Parse flags
 PROD=false
