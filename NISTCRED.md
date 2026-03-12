@@ -1,19 +1,18 @@
 # H.U.G.H. Infrastructure Access — Post-NIST Hardening
 
 > **Created:** 2026-03-12
-> **Status:** SSH LOCKED OUT on both VPS and Proxmox — keys need reinstallation via console
+> **Status:** ✅ SSH ACCESS RESTORED on both VPS and Proxmox
 
 ---
 
-## 🔴 CURRENT LOCKOUT STATUS
+## ✅ ACCESS RESTORED
 
-Both servers were hardened to NIST 800-53 on 2026-03-11 (~4 hours before this doc).
-Password auth was disabled but SSH keys were not properly installed/tested before lockdown.
+Both servers were hardened to NIST 800-53 on 2026-03-11. SSH keys installed 2026-03-12.
 
 | Server | IP | SSH Status | HTTP Status |
 |--------|-----|-----------|-------------|
-| VPS (Hostinger) | 187.124.28.147 | 🔴 Port 22 refusing connections | ✅ HTTPS serving on 443 |
-| Proxmox | 192.168.7.232 | 🔴 Key rejected, password disabled | ⚠️ Untested |
+| VPS (Hostinger) | 187.124.28.147 | ✅ Key auth working (`hugh_vps_v2`) | ✅ HTTPS serving on 443 |
+| Proxmox | 192.168.7.232 | ✅ Key auth working (`hugh_vps_v2`) | ✅ Web UI on :8006 |
 
 ---
 
@@ -22,7 +21,7 @@ Password auth was disabled but SSH keys were not properly installed/tested befor
 | Key File | Fingerprint | Purpose | Passphrase |
 |----------|-------------|---------|------------|
 | `~/.ssh/hugh_vps` | `SHA256:FOobq4gVlKfwlm1/cEKR9Bvb7WFZQf2O7+BMPTXgSsk` | VPS (old, locked out) | ❌ UNKNOWN — lost |
-| `~/.ssh/hugh_vps_v2` | (new) | VPS (replacement) | ✅ None (empty) |
+| `~/.ssh/hugh_vps_v2` | (new) | VPS + Proxmox (active) | ✅ None (empty) |
 | `~/.ssh/hugh_proxmox` | `SHA256:JLhEZEJzEfQ2LkzisDKLkBWYTb//jHsJtKuZPVsLgg4` | Proxmox | ❌ UNKNOWN — likely same issue |
 | `~/.ssh/hugh_containers` | `SHA256:Y5aJwQcfDqF6D6Xow2zbpfD5G+FRDTVsuRzQ6SjxZsQ` | Proxmox containers | ❌ UNKNOWN |
 | `~/.ssh/id_ed25519` | `SHA256:OniTCIrUGmG1LuYAoeaRjh2TlzgP2ufAxahSdhu/QaA` | Generic | Unknown |
@@ -84,6 +83,21 @@ Grizz knows the actual values — rotate them after regaining SSH access.
 | Hostinger VPanel | grizzmed account | Hostinger account pw | https://hpanel.hostinger.com |
 | Home Assistant | Bearer token | REDACTED | Committed in HANDOFF_AAR, now redacted |
 | Pangolin | API secret | REDACTED | Committed in HANDOFF_AAR, now redacted |
+
+---
+
+## 🔗 SSH QUICK REFERENCE
+
+```bash
+# VPS
+ssh -i ~/.ssh/hugh_vps_v2 root@187.124.28.147
+
+# Proxmox
+ssh -i ~/.ssh/hugh_vps_v2 root@192.168.7.232
+
+# Deploy frontend
+cd ~/hugh-build && rsync -avz --delete dist/ root@187.124.28.147:/var/www/workshop/ -e "ssh -i ~/.ssh/hugh_vps_v2"
+```
 
 ---
 
