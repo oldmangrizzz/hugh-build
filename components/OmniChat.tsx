@@ -18,6 +18,7 @@ import { HUGH_SYSTEM_PROMPT, HUGH_COMPACT_PROMPT, buildEnrichedPrompt } from "..
 import {
   runTextChain,
   runFullChain,
+  runPipelineChain,
   playAudio,
   stopAudio,
   browserTTS,
@@ -466,180 +467,55 @@ export const OmniChat: React.FC = () => {
       return;
     }
 
-    // Path 1: Web Speech API transcript available — use full chain
-    const transcript = transcriptRef.current.trim();
-    if (transcript) {
-      setInput('');
-      setIsStreaming(true);
-      setChainStage('transcribing');
-
-      // REPL context management for voice path
-      const repl = replSessionRef.current;
-      repl.addMessage('user', transcript);
-
-      const systemPrompt = coreIdentity && coreIdentity.length > 0
-        ? buildEnrichedPrompt(coreIdentity)
-        : HUGH_COMPACT_PROMPT;
-
-      const ctx = repl.getContext(systemPrompt);
-
-      const userMsg: ChatMessage = {
-        role: 'user',
-        content: transcript,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, userMsg]);
-
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-        isStreaming: true,
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-
-      try {
-        const audioBlob = encodeWAV(audioChunksRef.current, 16000);
-
-        setChainStage('thinking');
-        const result = await runFullChain({
-          audioBlob,
-          systemPrompt,
-          history: ctx.messages,
-          browserTranscript: transcript,
-          onThinkingToken: (_token, fullText) => {
-            const display = cleanResponse(fullText);
-            setMessages(prev => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, content: display };
-              }
-              return updated;
-            });
-          },
-        });
-
-        const finalContent = result.thinking.text;
-
-        // Superego Veto
-        const veto = repl.checkResponse(finalContent);
-        const displayContent = veto
-          ? `[SUPEREGO VETO] ${veto}\n\nOriginal response suppressed.`
-          : finalContent;
-
-        repl.addMessage('assistant', displayContent);
-
-        setMessages(prev => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === 'assistant') {
-            updated[updated.length - 1] = {
-              ...last,
-              isStreaming: false,
-              content: displayContent,
-            };
-          }
-          return updated;
-        });
-
-        // Play Hugh's voice via LFM Audio S2S → browser TTS fallback
-        if (ttsEnabled && !veto) {
-          setChainStage('speaking');
-          playAudio(result.synthesis, displayContent);
-        }
-      } catch (err: any) {
-        if (err?.name !== 'AbortError') {
-          setMessages(prev => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
-            if (last?.role === 'assistant') {
-              updated[updated.length - 1] = {
-                ...last,
-                isStreaming: false,
-                content: `Chain error: ${err?.message}`,
-              };
-            }
-            return updated;
-          });
-        }
-      }
-
-      setIsStreaming(false);
-      setChainStage('idle');
-      return;
-    }
-
-    // Path 2: No Web Speech API — send raw audio through the full daisy chain
-    // LFM Audio S2S handles transcription server-side
+    // Sovereign pipeline: Deepgram ASR → LFM personality → Pocket TTS (Billy)
+    // One round-trip to CT102:8090 — no Google, no OpenAI, no Whisper
     setInput('');
     setIsStreaming(true);
     setChainStage('transcribing');
 
-    const repl2 = replSessionRef.current;
-    const systemPrompt2 = coreIdentity && coreIdentity.length > 0
-      ? buildEnrichedPrompt(coreIdentity)
-      : HUGH_COMPACT_PROMPT;
-    const ctx2 = repl2.getContext(systemPrompt2);
+    const repl = replSessionRef.current;
 
-    const userMsg2: ChatMessage = {
+    const userMsg: ChatMessage = {
       role: 'user',
       content: '[Voice input — transcribing...]',
       timestamp: Date.now(),
     };
-    setMessages(prev => [...prev, userMsg2]);
+    setMessages(prev => [...prev, userMsg]);
 
-    const assistantMsg2: ChatMessage = {
+    const assistantMsg: ChatMessage = {
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
       isStreaming: true,
     };
-    setMessages(prev => [...prev, assistantMsg2]);
+    setMessages(prev => [...prev, assistantMsg]);
 
     try {
       const audioBlob = encodeWAV(audioChunksRef.current, 16000);
-
       setChainStage('thinking');
-      const result = await runFullChain({
-        audioBlob,
-        systemPrompt: systemPrompt2,
-        history: ctx2.messages,
-        onThinkingToken: (_token, fullText) => {
-          const display = cleanResponse(fullText);
-          setMessages(prev => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
-            if (last?.role === 'assistant') {
-              updated[updated.length - 1] = { ...last, content: display };
-            }
-            return updated;
-          });
-        },
+
+      const result = await runPipelineChain(audioBlob, streamControllerRef.current?.signal);
+
+      // Update user message with Deepgram transcript
+      repl.addMessage('user', result.transcript);
+      setMessages(prev => {
+        const updated = [...prev];
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i]?.role === 'user' && updated[i]?.content === '[Voice input — transcribing...]') {
+            updated[i] = { ...updated[i]!, content: result.transcript };
+            break;
+          }
+        }
+        return updated;
       });
 
-      // Update user message with actual transcription from LFM Audio
-      if (result.transcription.text) {
-        repl2.addMessage('user', result.transcription.text);
-        setMessages(prev => {
-          const updated = [...prev];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i]?.role === 'user' && updated[i]?.content === '[Voice input — transcribing...]') {
-              updated[i] = { ...updated[i]!, content: result.transcription.text };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
+      // Superego Veto check
+      const veto = repl.checkResponse(result.response);
+      const displayContent = veto
+        ? `[SUPEREGO VETO] ${veto}\n\nOriginal response suppressed.`
+        : result.response;
 
-      const finalContent2 = result.thinking.text;
-      const veto2 = repl2.checkResponse(finalContent2);
-      const displayContent2 = veto2
-        ? `[SUPEREGO VETO] ${veto2}\n\nOriginal response suppressed.`
-        : finalContent2;
-
-      repl2.addMessage('assistant', displayContent2);
+      repl.addMessage('assistant', displayContent);
 
       setMessages(prev => {
         const updated = [...prev];
@@ -648,19 +524,20 @@ export const OmniChat: React.FC = () => {
           updated[updated.length - 1] = {
             ...last,
             isStreaming: false,
-            content: displayContent2,
+            content: displayContent,
           };
         }
         return updated;
       });
 
-      if (ttsEnabled && !veto2) {
+      if (ttsEnabled && !veto) {
         setChainStage('speaking');
-        playAudio(result.synthesis, displayContent2);
+        const audio = new Audio(URL.createObjectURL(result.audioBlob));
+        audio.play().catch(() => browserTTS(displayContent));
       }
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
-        console.warn('[OmniChat] Voice chain failed:', err);
+        console.warn('[OmniChat] Pipeline failed:', err);
         setMessages(prev => {
           const updated = [...prev];
           const last = updated[updated.length - 1];
@@ -668,7 +545,7 @@ export const OmniChat: React.FC = () => {
             updated[updated.length - 1] = {
               ...last,
               isStreaming: false,
-              content: `Voice chain error: ${err?.message}. Try typing instead.`,
+              content: `Pipeline error: ${err?.message}`,
             };
           }
           return updated;

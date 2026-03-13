@@ -481,6 +481,53 @@ export async function runFullChain(opts: {
   return { transcription, thinking, synthesis, vl };
 }
 
+// ─── Pipeline Chain (Deepgram ASR → LFM Personality → Pocket TTS) ──────────
+
+export interface PipelineResult {
+  transcript: string;
+  response: string;
+  audioBlob: Blob;
+  total_ms: number;
+}
+
+/**
+ * Full sovereign S2S pipeline — one round-trip to CT102:8090.
+ * Deepgram Nova-3 ASR → LFM personality LoRA → Pocket TTS (Billy Connolly 1982 ref).
+ * No Google, no OpenAI, no Whisper — nothing leaves our iron except Deepgram.
+ */
+export async function runPipelineChain(
+  audioBlob: Blob,
+  signal?: AbortSignal,
+): Promise<PipelineResult> {
+  const endpoint = import.meta.env.VITE_PIPELINE_ENDPOINT ?? '/api/pipeline';
+
+  const buf = await audioBlob.arrayBuffer();
+  const audio_b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio_b64 }),
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Pipeline ${res.status}: ${await res.text()}`);
+  }
+
+  const data = await res.json();
+
+  const audioBytes = Uint8Array.from(atob(data.audio_b64), c => c.charCodeAt(0));
+  const responseAudioBlob = new Blob([audioBytes], { type: 'audio/wav' });
+
+  return {
+    transcript: data.transcript,
+    response:   data.response,
+    audioBlob:  responseAudioBlob,
+    total_ms:   data.total_ms,
+  };
+}
+
 // ─── Text-Only Chain (for typed input) ──────────────────────
 
 /**

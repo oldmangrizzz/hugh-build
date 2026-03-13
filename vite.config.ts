@@ -25,6 +25,12 @@ export default defineConfig({
     port: 3000,
     host: true,
     proxy: {
+      // Pipeline: full S2S — Deepgram ASR → LFM personality → Pocket TTS (Billy)
+      '/api/pipeline': {
+        target: 'http://192.168.7.200:8090',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/pipeline/, '/pipeline'),
+      },
       // Dev proxy — routes /api/* to local LFM inference (CT102 via SSH tunnel)
       // In production, nginx on VPS handles this routing
       '/api': {
