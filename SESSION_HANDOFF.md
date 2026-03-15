@@ -46,7 +46,7 @@ Then use GUI automation (or ask Grizz) to:
 The notebook prints:
 ```
 ssh -o ProxyCommand="cloudflared access ssh --hostname <xxx>.trycloudflare.com" root@<xxx>.trycloudflare.com
-Password: hugh_workshop_2026
+Password: REDACTED_ROTATE_ME
 ```
 
 ### Step 4: SSH In & Run Training
